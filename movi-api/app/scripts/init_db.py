@@ -1,4 +1,3 @@
-# scripts/init_db.py
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient, ASCENDING

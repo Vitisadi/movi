@@ -1,4 +1,3 @@
-# app/users/service.py
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from bson.objectid import ObjectId

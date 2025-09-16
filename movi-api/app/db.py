@@ -1,4 +1,3 @@
-# app/db.py
 from pymongo import MongoClient
 from flask import current_app, g
 
@@ -13,7 +12,6 @@ def get_db():
     db_name = current_app.config["DB_NAME"]
     return client[db_name]
 
-# optional teardown
 from flask import Flask
 def init_app(app: Flask):
     @app.teardown_appcontext

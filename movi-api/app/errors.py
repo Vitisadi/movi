@@ -1,4 +1,3 @@
-# app/errors.py
 from flask import Flask, jsonify
 from pymongo.errors import DuplicateKeyError, WriteError
 
