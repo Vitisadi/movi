@@ -1,0 +1,1 @@
+python -m flask --app wsgi:app --debug run --port=3000
