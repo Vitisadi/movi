@@ -25,6 +25,7 @@ const MAPPING = {
    'person.fill': 'person',
    'book.fill': 'book',
    'bookmark.fill': 'bookmark',
+   'magnifyingglass.circle.fill': 'search',
 } as IconMapping;
 
 /**
