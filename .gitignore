@@ -4,3 +4,4 @@ node_modules
 .vscodenode_modules/
 __pycache__/
 movi/
+MovieDbAPI/
