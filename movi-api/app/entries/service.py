@@ -2,7 +2,7 @@ import requests
 from .schemas import Book
 import datetime
 
-def get_book(title):
+def get_book_from_api(title):
     title = "+".join(title.lower().split(" "))
     url = f"https://openlibrary.org/search.json?title={title}"
     result = None

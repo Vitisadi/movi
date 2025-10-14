@@ -2,6 +2,7 @@ from flask import Flask
 from .config import Config
 from flask_cors import CORS
 from .errors import register_error_handlers
+from.entries import entries_bp
 from .users import users_bp
 from .health import health_bp
 from . import db as db_module
@@ -19,6 +20,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     # Blueprints
     app.register_blueprint(health_bp, url_prefix="/")
     app.register_blueprint(users_bp, url_prefix="/users")
+    app.register_blueprint(entries_bp, url_prefix="/entries")
 
     # Error handlers
     register_error_handlers(app)
