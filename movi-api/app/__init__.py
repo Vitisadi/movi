@@ -6,6 +6,7 @@ from.entries import entries_bp
 from .users import users_bp
 from .health import health_bp
 from . import db as db_module
+from .tmdb import tmdb_bp  # <-- added
 
 def create_app(config_class: type[Config] = Config) -> Flask:
     app = Flask(__name__)
@@ -20,9 +21,10 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     # Blueprints
     app.register_blueprint(health_bp, url_prefix="/")
     app.register_blueprint(users_bp, url_prefix="/users")
-    app.register_blueprint(entries_bp, url_prefix="/entries")
+    app.register_blueprint(tmdb_bp, url_prefix="/")  # <-- added
 
     # Error handlers
     register_error_handlers(app)
 
     return app
+

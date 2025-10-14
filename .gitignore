@@ -1,4 +1,7 @@
 node_modules
 .expo
 .env
-.vscode
+.vscodenode_modules/
+__pycache__/
+movi/
+MovieDbAPI/
