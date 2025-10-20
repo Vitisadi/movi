@@ -31,6 +31,11 @@ type SearchItem = {
   rating?: number; // 0-10
 };
 
+// Frontend API base URL from env 
+const API_BASE_URL =
+  (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) ||
+  'http://127.0.0.1:3000';
+
 const SAMPLE_ITEMS: SearchItem[] = [
   {
     id: 'm1',
@@ -110,19 +115,13 @@ export default function SearchScreen() {
   const [reviewRating, setReviewRating] = useState('');
   const [reviewTitle, setReviewTitle] = useState('');
   const [reviewText, setReviewText] = useState('');
+  const [apiResults, setApiResults] = useState<SearchItem[]>([]);
 
   // Filter by activeQuery after the user presses Search
   const results = useMemo(() => {
     if (!hasSearched) return [] as SearchItem[];
-    const q = activeQuery.trim().toLowerCase();
-    const src = q ? SAMPLE_ITEMS.filter((i) =>
-      [i.title, i.director ?? '', i.author ?? '', String(i.year ?? '')]
-        .join(' ')
-        .toLowerCase()
-        .includes(q)
-    ) : SAMPLE_ITEMS;
-    return src;
-  }, [activeQuery, hasSearched]);
+    return apiResults;
+  }, [apiResults, hasSearched]);
 
   const movies = useMemo(() => results.filter(r => r.kind === 'movie'), [results]);
   const books = useMemo(() => results.filter(r => r.kind === 'book'), [results]);
@@ -149,14 +148,33 @@ export default function SearchScreen() {
   const handleAddWatched = (item: SearchItem) => sendToBackend('watched', item);
   const handleAddLater = (item: SearchItem) => sendToBackend('later', item);
 
-  const onSubmitSearch = () => {
+  const onSubmitSearch = async () => {
+    const q = query.trim();
+    if (!q) return;
     setSubmitting(true);
     Keyboard.dismiss();
-    setTimeout(() => {
-      setActiveQuery(query);
-      setHasSearched(true);
+    setActiveQuery(q);
+    setHasSearched(true);
+    try {
+      const url = `${API_BASE_URL}/getmovies?name=${encodeURIComponent(q)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const mapped: SearchItem[] = items.map((it: any) => ({
+        id: String(it.id ?? ''),
+        kind: 'movie',
+        title: String(it.title ?? ''),
+        year: it.year ? Number(it.year) : undefined,
+        posterUrl: it.posterUrl ?? undefined,
+      }));
+      setApiResults(mapped);
+    } catch (err: any) {
+      Alert.alert('Search failed', String(err?.message || err));
+      setApiResults([]);
+    } finally {
       setSubmitting(false);
-    }, 300);
+    }
   };
 
   const openReview = (item: SearchItem) => {
