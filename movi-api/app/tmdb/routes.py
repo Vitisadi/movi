@@ -7,8 +7,8 @@ import requests
 from flask import request, jsonify, current_app
 
 from . import tmdb_bp  # blueprint defined in app/tmdb/__init__.py
-from ..db import get_db  # your DB helper
-from bson.objectid import ObjectId  # for Mongo _id lookups
+from ..db import get_db
+from bson.objectid import ObjectId
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE, IMG_SIZE = "https://image.tmdb.org/t/p", "w342"
