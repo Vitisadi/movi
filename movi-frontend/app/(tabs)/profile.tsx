@@ -83,10 +83,12 @@ export default function ProfileScreen() {
          <ThemedView style={styles.profileCard}>
             <View style={styles.profileRow}>
                <View style={styles.avatarContainer}>
-                  <Image
-                     source={{ uri: user?.avatarUrl || PLACEHOLDER_IMG }}
-                     style={styles.avatar}
-                  />
+                  {user?.avatarUrl && (
+                     <Image
+                        source={{ uri: user?.avatarUrl }}
+                        style={styles.avatar}
+                     />
+                  )}
                   <View
                      style={[styles.avatarRing, { borderColor: tintColor }]}
                   />
@@ -367,8 +369,6 @@ export default function ProfileScreen() {
    );
 }
 
-const PLACEHOLDER_IMG =
-   'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400&auto=format&fit=crop&q=60';
 const COVER_IMG =
    'https://images.unsplash.com/photo-1541701494587-cb58502866ab?q=80&w=2070&auto=format&fit=crop';
 
