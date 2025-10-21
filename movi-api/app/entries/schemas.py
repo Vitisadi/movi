@@ -1,19 +1,20 @@
 from datetime import datetime
 from pydantic import BaseModel
 from typing import List
-from users.schemas import UserIn
+from ..users.schemas import UserIn
 
 class Entry(BaseModel):
     title: str
     year_released: int | List[int] # for range of years
     date_added: datetime
-    avg_rating: float
-    added_by: dict[UserIn, int] # Key: user Value: rating given
+    avg_rating: float | None
+    added_by: dict[str, int] | None# Key: username Value: rating given
+    wishlisted_by: List[UserIn] | None
 
 class Book(Entry):
     author: str | List[str]
-    publisher: str | List[str]
-    page_count: int
+    publisher: str | List[str] | None
+    page_count: int | None
     
 
 class Movie(Entry):
