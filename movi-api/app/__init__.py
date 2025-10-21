@@ -23,7 +23,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     app.register_blueprint(users_bp, url_prefix="/users")
     app.register_blueprint(tmdb_bp, url_prefix="/")  # <-- added
     app.register_blueprint(library_bp, url_prefix="/")
-    print(app.url_map)
+
 
     # Error handlers
     register_error_handlers(app)
