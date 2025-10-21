@@ -12,8 +12,11 @@ const API_BASE = 'http://localhost:3000';
 // Types
 export interface User {
    id: string;
-   name: string;
+   name: string | null;
    email: string;
+   username?: string | null;
+   avatarUrl?: string | null;
+   bio?: string | null;
 }
 
 interface AuthContextType {
@@ -48,12 +51,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
    const checkAuthStatus = async () => {
       try {
          const t = await AsyncStorage.getItem('authToken');
+         const u = await AsyncStorage.getItem('user');
+         console.log(t);
          if (t) {
             setToken(t);
             // Optionally fetch user info from API using the token
             // Example: await fetch(`${API_BASE}/me`, { headers: { Authorization: `Bearer ${t}` } })
             // If your API has /me endpoint use that instead. Here we skip fetching user to keep it simple.
          }
+
+         if (u) {
+            try {
+               const parsed = JSON.parse(u);
+               // map server user shape to frontend User
+               const mapped: User = {
+                  id: parsed._id || parsed.id,
+                  name: parsed.name ?? null,
+                  email: parsed.email,
+                  username: parsed.username ?? null,
+                  avatarUrl: parsed.avatarUrl ?? null,
+                  bio: parsed.bio ?? null,
+               };
+               setUser(mapped);
+            } catch (e) {
+               console.error('Failed to parse stored user', e);
+            }
+         }
+         console.log(u);
       } catch (error) {
          console.error('Error checking auth status:', error);
       } finally {
@@ -80,7 +104,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
             await AsyncStorage.setItem('authToken', t);
             setToken(t);
          }
-         if (u) setUser(u);
+         if (u) {
+            // map server user to frontend shape
+            const mapped: User = {
+               id: u._id || u.id,
+               name: u.name ?? null,
+               email: u.email,
+               username: u.username ?? null,
+               avatarUrl: u.avatarUrl ?? null,
+               bio: u.bio ?? null,
+            };
+            await AsyncStorage.setItem('user', JSON.stringify(u));
+            setUser(mapped);
+         }
       } catch (error) {
          throw new Error('Invalid email or password');
       } finally {
@@ -111,7 +147,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
             await AsyncStorage.setItem('authToken', data.token);
             setToken(data.token);
          }
-         if (data.user) setUser(data.user);
+         if (data.user) {
+            const u = data.user;
+            const mapped: User = {
+               id: u._id || u.id,
+               name: u.name ?? null,
+               email: u.email,
+               username: u.username ?? null,
+               avatarUrl: u.avatarUrl ?? null,
+               bio: u.bio ?? null,
+            };
+            await AsyncStorage.setItem('user', JSON.stringify(u));
+            setUser(mapped);
+         }
       } catch (error) {
          throw new Error('Registration failed. Please try again.');
       } finally {
@@ -125,6 +173,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
          // Remove stored token and user on logout
          await AsyncStorage.removeItem('authToken');
+         await AsyncStorage.removeItem('user');
          setToken(null);
          setUser(null);
       } catch (error) {
