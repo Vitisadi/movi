@@ -63,7 +63,8 @@ def healthz():
         "auth": {"v3": bool(_tmdb_key())},
         "routes": [
             "/getmovies/<movieName>",                  # trimmed payload search (path param)
-            "/movies/user/<id>",                       # movies from a user (path param)
+            "/movies/user/<id>",                       # watched movies from a user (path param)
+            "/watchlatermovies/user/<id>",             # watch later movies from a user (path param)
             "/api/search/movie",
             "/api/search/movie/simple",
             "/api/title/movie/<id>",
@@ -195,6 +196,79 @@ def get_movies_from_user(id: str):
     except Exception as e:
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
+
+
+
+# --- Movies from a user by Mongo _id ---
+# /watchlatermovies/user/<id>?limit=50&pretty=1
+@tmdb_bp.get("/watchlatermovies/user/<id>")
+def get_watch_later_movies_from_user(id: str):
+    """
+    /watchlatermovies/user/<id>
+    Reads user.watchedMovies (TMDB int IDs), fetches each from TMDB, returns normalized list.
+    Optional: &limit=50 (default 50), &pretty=1
+    """
+    try:
+        id_str = (id or "").strip()
+        if not id_str:
+            return jsonify({"error": "missing_id"}), 400
+
+        # Must be a valid 24-hex ObjectId
+        try:
+            oid = ObjectId(id_str)
+        except Exception:
+            return jsonify({"error": "invalid_id"}), 400
+
+        pretty = request.args.get("pretty") == "1"
+        try:
+            limit_i = max(0, int(request.args.get("limit", "50")))
+        except Exception:
+            limit_i = 50
+
+        # Ensure TMDB key configured
+        if not _tmdb_key():
+            return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
+
+        db = get_db()
+
+        user = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1})
+        if not user:
+            return jsonify({"error": "not_found"}), 404
+
+        raw_ids = user.get("watchLaterMovies") or []
+        # Coerce to ints, de-dup, preserve order
+        seen, movie_ids = set(), []
+        for v in raw_ids:
+            try:
+                iv = int(v)
+            except Exception:
+                continue
+            if iv not in seen:
+                seen.add(iv)
+                movie_ids.append(iv)
+
+        if limit_i:
+            movie_ids = movie_ids[:limit_i]
+
+        items = []
+        for mid in movie_ids:
+            m = _fetch_movie_simple(mid)
+            if m:
+                items.append(m)
+
+        payload = {"userId": id_str, "count": len(items), "items": items}
+        if pretty:
+            return current_app.response_class(
+                json.dumps(payload, indent=2),
+                mimetype="application/json; charset=utf-8",
+            )
+        return jsonify(payload)
+
+    except Exception as e:
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+
 
 
 # --- RAW TMDB payload (search) ---
