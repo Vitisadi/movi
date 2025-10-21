@@ -6,9 +6,9 @@ from urllib.parse import urlencode
 import requests
 from flask import request, jsonify, current_app
 
-from . import tmdb_bp  # blueprint defined in app/tmdb/__init__.py
-from ..db import get_db
-from bson.objectid import ObjectId
+from . import tmdb_bp  
+from ..db import get_db  
+from bson.objectid import ObjectId  
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE, IMG_SIZE = "https://image.tmdb.org/t/p", "w342"
@@ -62,8 +62,8 @@ def healthz():
         "ok": True,
         "auth": {"v3": bool(_tmdb_key())},
         "routes": [
-            "/getmovies?name=...",
-            "/getmoviesfromuser?id=...",
+            "/getmovies/<movieName>",                  # trimmed payload search (path param)
+            "/movies/user/<id>",                       # movies from a user (path param)
             "/api/search/movie",
             "/api/search/movie/simple",
             "/api/title/movie/<id>",
@@ -72,15 +72,16 @@ def healthz():
 
 
 # --- Custom search endpoint (trimmed payload) ---
-@tmdb_bp.get("/getmovies")
-def get_movies_by_name():
+# /getmovies/<movieName>?page=2&pretty=1&save=1
+@tmdb_bp.get("/getmovies/<movieName>")
+def get_movies_by_name(movieName: str):
     """
-    /getmovies?name=Inception
+    /getmovies/<movieName>
     Optional: &page=2&pretty=1&save=1
     Returns the same trimmed payload shape as /api/search/movie/simple
     """
     try:
-        name = (request.args.get("name") or "").strip()
+        name = (movieName or "").strip()
         page = request.args.get("page", "1")
         pretty = request.args.get("pretty") == "1"
         save = request.args.get("save") == "1"
@@ -127,15 +128,16 @@ def get_movies_by_name():
 
 
 # --- Movies from a user by Mongo _id ---
-@tmdb_bp.get("/getmoviesfromuser")
-def get_movies_from_user():
+# /movies/user/<id>?limit=50&pretty=1
+@tmdb_bp.get("/movies/user/<id>")
+def get_movies_from_user(id: str):
     """
-    /getmoviesfromuser?id=<24-hex ObjectId>
+    /movies/user/<id>
     Reads user.watchedMovies (TMDB int IDs), fetches each from TMDB, returns normalized list.
     Optional: &limit=50 (default 50), &pretty=1
     """
     try:
-        id_str = (request.args.get("id") or "").strip()
+        id_str = (id or "").strip()
         if not id_str:
             return jsonify({"error": "missing_id"}), 400
 
@@ -287,3 +289,4 @@ def title_movie(id: str):
     except Exception as e:
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
+
