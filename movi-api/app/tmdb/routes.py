@@ -63,7 +63,8 @@ def healthz():
         "auth": {"v3": bool(_tmdb_key())},
         "routes": [
             "/getmovies/<movieName>",                  # trimmed payload search (path param)
-            "/movies/user/<id>",                       # movies from a user (path param)
+            "/movies/user/<id>",                       # watched movies from a user (path param)
+            "/watchlatermovies/user/<id>",             # watch later movies from a user (path param)
             "/api/search/movie",
             "/api/search/movie/simple",
             "/api/title/movie/<id>",
