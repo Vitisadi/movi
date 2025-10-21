@@ -1,5 +1,7 @@
+from . import library_bp
+from flask import jsonify, request
 import requests
-from .schemas import Book
+from ..entries.schemas import Book
 import datetime
 
 def get_book_from_api(title):
@@ -32,3 +34,9 @@ def get_book_from_api(title):
                 author=result.get("author_name")[0],
                 publisher=None,
                 page_count=None)
+
+@library_bp.get("/getbook")
+def searchBook():
+    print("calling get_book_from_api")
+    title   = (request.args.get("name") or "").strip()
+    return jsonify(get_book_from_api(title).model_dump_json())
