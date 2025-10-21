@@ -10,6 +10,7 @@ def get_client() -> MongoClient:
 def get_db():
     client = get_client()
     db_name = current_app.config["DB_NAME"]
+    print(f"db_name:{db_name}")
     return client[db_name]
 
 from flask import Flask

@@ -5,6 +5,7 @@ import bcrypt
 import jwt
 import base64
 from ..db import get_db
+from pymongo.errors import DuplicateKeyError, PyMongoError
 from ..users.schemas import UserIn, UserOut
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret")
@@ -50,12 +51,29 @@ def register_user(payload: Dict[str, Any]) -> Dict[str, Any]:
     user_fields = {k: v for k, v in payload.items()}
     user_in = UserIn.model_validate(user_fields)
     doc = user_in.model_dump()
+    print(doc)
     doc["passwordHash"] = hash_password(pw)
     now = datetime.utcnow()
     doc["createdAt"] = now
     doc["updatedAt"] = now
-    result = db.users.insert_one(doc)
-    saved = db.users.find_one({"_id": result.inserted_id})
+    try:
+        # remove any pre-populated _id so MongoDB can generate one and schema validators
+        # that disallow unknown _id fields won't reject the insert
+        doc.pop("_id", None)
+        result = db.users.insert_one(doc)
+        print(f"result{result}")
+        saved = db.users.find_one({"_id": result.inserted_id})
+    except DuplicateKeyError as e:
+        # likely email or username duplicate
+        print("DuplicateKeyError inserting user:", e)
+        raise ValueError("email_taken")
+    except PyMongoError as e:
+        # unexpected DB error; include some debug info
+        print("PyMongoError inserting user:", e)
+        print("db object:", type(db), repr(db))
+        print("doc being inserted:", doc)
+        raise
+    print(saved)
     # ensure id is string for UserOut
     saved["_id"] = str(saved["_id"])
     user_out = UserOut.model_validate(saved)
