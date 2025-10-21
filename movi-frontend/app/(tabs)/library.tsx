@@ -49,7 +49,8 @@ export default function LibraryScreen() {
 
    const data: LibraryData = libraryData as LibraryData;
    const picked = activeTab === 'Watched' ? data.watched : data.later;
-
+   const { user } = useAuth();
+   console.log('library', user);
    const totalCount =
       (picked.movies?.length || 0) + (picked.books?.length || 0);
    const isEmpty = totalCount === 0;

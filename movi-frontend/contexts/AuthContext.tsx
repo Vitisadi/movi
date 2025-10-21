@@ -48,12 +48,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
    const checkAuthStatus = async () => {
       try {
          const t = await AsyncStorage.getItem('authToken');
+         const u = await AsyncStorage.getItem('user');
+         console.log(t);
          if (t) {
             setToken(t);
             // Optionally fetch user info from API using the token
             // Example: await fetch(`${API_BASE}/me`, { headers: { Authorization: `Bearer ${t}` } })
             // If your API has /me endpoint use that instead. Here we skip fetching user to keep it simple.
          }
+
+         if (u) {
+            setUser(JSON.parse(u));
+         }
+         console.log(u);
       } catch (error) {
          console.error('Error checking auth status:', error);
       } finally {
@@ -80,7 +87,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
             await AsyncStorage.setItem('authToken', t);
             setToken(t);
          }
-         if (u) setUser(u);
+         if (u) {
+            await AsyncStorage.setItem('user', JSON.stringify(u));
+            setUser(u);
+         }
       } catch (error) {
          throw new Error('Invalid email or password');
       } finally {

@@ -1,8 +1,10 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function ProfileScreen() {
+   const { user } = useAuth();
    return (
       <ThemedView style={styles.container}>
          <ThemedView style={styles.titleContainer}>
