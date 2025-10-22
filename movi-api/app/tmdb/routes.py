@@ -62,11 +62,12 @@ def healthz():
         "ok": True,
         "auth": {"v3": bool(_tmdb_key())},
         "routes": [
-            "/getmovies/<movieName>",                  # trimmed payload search (path param)
-            "/movies/user/<id>",                       # watched movies from a user (path param)
-            "/watchlatermovies/user/<id>",             # watch later movies from a user (path param)
-            "/addwatchedmovie/user/<userID>/movie/<movieID>",  # POST method, port 5000. add a movie to a user's watchedMovies
+            "/getmovies/<movieName>",                             # trimmed payload search (path param)
+            "/movies/user/<id>",                                  # watched movies from a user (path param)
+            "/watchlatermovies/user/<id>",                        # watch later movies from a user (path param)
+            "/addwatchedmovie/user/<userID>/movie/<movieID>",     # POST method, port 5000. add a movie to a user's watchedMovies
             "/addwatchlatermovie/user/<userID>/movie/<movieID>",  # POST method, port 5000. add a movie to a user's watchedLaterMovies
+            "/createmoviereview",                                 # POST method, create a movie review, stores id in user profile
             "/api/search/movie",
             "/api/search/movie/simple",
             "/api/title/movie/<id>",
@@ -397,6 +398,106 @@ def add_watch_later_movie(userID: str, movieID: str):
     except Exception as e:
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
+
+
+@tmdb_bp.post("/createmoviereview")
+def create_movie_review():
+    try:
+        payload = request.get_json(silent=True) or {}
+        user_id = (payload.get("userId") or "").strip()
+        movie_id = payload.get("movieId")
+        rating = payload.get("rating")
+        title = payload.get("title")   # optional
+        body = payload.get("body")     # required
+
+        # validate userId
+        try:
+            oid = ObjectId(user_id)
+        except Exception:
+            return jsonify({"error": "invalid_user_id"}), 400
+
+        # validate movieId (int32)
+        try:
+            mid = int(movie_id)
+        except Exception:
+            return jsonify({"error": "invalid_movie_id"}), 400
+        if not (-2147483648 <= mid <= 2147483647):
+            return jsonify({"error": "movie_id_out_of_range_int32"}), 400
+
+        # validate rating 1..10
+        try:
+            r = int(rating)
+        except Exception:
+            return jsonify({"error": "invalid_rating"}), 400
+        if r < 1 or r > 10:
+            return jsonify({"error": "rating_out_of_range", "min": 1, "max": 10}), 400
+
+        # validate body (required)
+        if not isinstance(body, str) or not body.strip():
+            return jsonify({"error": "missing_body"}), 400
+
+        # check TMDB availability + that the movie exists
+        if not _tmdb_key():
+            return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
+        if not _fetch_movie_simple(mid):
+            return jsonify({"error": "movie_not_found_tmdb", "movieId": mid}), 404
+
+        db = get_db()
+
+        # ensure user exists
+        if not db.users.find_one({"_id": oid}, {"_id": 1}):
+            return jsonify({"error": "user_not_found"}), 404
+
+        now = __import__("datetime").datetime.utcnow()
+
+        # prepare review doc
+        doc = {
+            "movieId": mid,            # Int32 in Mongo
+            "userId": oid,             # ObjectId
+            "rating": r,
+            "title": title if (title is None or isinstance(title, str)) else str(title),
+            "body": body.strip(),
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+        # insert review (unique index on {movieId, userId} recommended)
+        res = db.movieReviews.insert_one(doc)
+        review_id = res.inserted_id
+
+        # add review id to user's movieReviews array (creates if missing, no dups)
+        try:
+            db.users.update_one(
+                {"_id": oid},
+                {"$addToSet": {"movieReviews": review_id}}
+            )
+        except Exception as e:
+            # if this fails (e.g., validator missing movieReviews), surface a helpful error
+            return jsonify({
+                "error": "user_update_failed",
+                "detail": str(e),
+                "reviewId": str(review_id)
+            }), 500
+
+        return jsonify({
+            "ok": True,
+            "id": str(review_id),
+            "movieId": mid,
+            "userId": str(oid),
+            "rating": r
+        }), 201
+
+    except Exception as e:
+        msg = str(e)
+        # duplicate review (if you add the unique index below)
+        if "E11000" in msg:
+            return jsonify({
+                "error": "duplicate_review",
+                "detail": "user already reviewed this movie"
+            }), 409
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": msg}), 500
+
 
 
 # --- RAW TMDB payload (search) ---
