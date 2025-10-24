@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
    View,
    Text,
@@ -8,11 +8,14 @@ import {
    Pressable,
    RefreshControl,
    Alert,
+   ActivityIndicator,
 } from 'react-native';
 
 // @ts-ignore
 import libraryData from '../../assets/json/library.json';
 import { useAuth } from '@/contexts/AuthContext';
+import { onLibraryChanged } from '@/lib/library-events';
+import { useFocusEffect } from '@react-navigation/native';
 
 /* ---------- Types ---------- */
 type Movie = {
@@ -43,14 +46,24 @@ type LibraryData = {
 const TABS = ['Watched', 'Watch Later'] as const;
 type TabKey = (typeof TABS)[number];
 
+// Frontend API base URL from env
+const API_BASE_URL =
+  (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) ||
+  'http://127.0.0.1:3000';
+
 export default function LibraryScreen() {
    const [activeTab, setActiveTab] = useState<TabKey>('Watched');
    const [refreshing, setRefreshing] = useState(false);
+   const [loading, setLoading] = useState(true);
+   const [watchedMovies, setWatchedMovies] = useState<Movie[]>([]);
+   const [laterMovies, setLaterMovies] = useState<Movie[]>([]);
 
-   const data: LibraryData = libraryData as LibraryData;
-   const picked = activeTab === 'Watched' ? data.watched : data.later;
+   const picked =
+      activeTab === 'Watched'
+         ? { movies: watchedMovies, books: [] as Book[] }
+         : { movies: laterMovies, books: [] as Book[] };
    const { user } = useAuth();
-   console.log('library', user);
+   const USER_ID = user?.id ?? '68c9b2d573fbd318f36537ce';
    const totalCount =
       (picked.movies?.length || 0) + (picked.books?.length || 0);
    const isEmpty = totalCount === 0;
@@ -68,15 +81,70 @@ export default function LibraryScreen() {
             kind: 'book' as const,
          },
       ],
-      //only needs to recompute when the tab changes (picked changes)
-      [activeTab]
+      // Recompute when tab or underlying lists change
+      [activeTab, watchedMovies, laterMovies]
    );
 
-   const onRefresh = () => {
-      setRefreshing(true);
-      //MAKE BACKEND API CALL HERE TO LOAD IN DATA
-      setTimeout(() => setRefreshing(false), 400);
+   function mapApiMovie(it: any): Movie {
+      const idStr = String(it?.id ?? '');
+      const yearNum = it?.year ? Number(it.year) : undefined;
+      return {
+         id: idStr,
+         title: String(it?.title ?? ''),
+         year: Number.isFinite(yearNum) ? yearNum : undefined,
+         posterUrl: it?.posterUrl ?? undefined,
+      };
+   }
+
+   const loadWatched = async () => {
+      const url = `${API_BASE_URL}/movies/user/${USER_ID}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Watched HTTP ${res.status}`);
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setWatchedMovies(items.map(mapApiMovie));
    };
+
+   const loadLater = async () => {
+      const url = `${API_BASE_URL}/watchlatermovies/user/${USER_ID}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`WatchLater HTTP ${res.status}`);
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setLaterMovies(items.map(mapApiMovie));
+   };
+
+   const onRefresh = async (initial = false) => {
+      try {
+         if (initial) setLoading(true);
+         setRefreshing(true);
+         await Promise.all([loadWatched(), loadLater()]);
+      } catch (err: any) {
+         Alert.alert('Load failed', String(err?.message || err));
+      } finally {
+         setRefreshing(false);
+         if (initial) setLoading(false);
+      }
+   };
+
+   useEffect(() => {
+      // initial load with loader
+      onRefresh(true);
+      const off = onLibraryChanged(() => {
+         // refresh when other screens report changes
+         onRefresh();
+      });
+      return off;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, []);
+
+   // Also refresh whenever this tab gains focus
+   // Commented for now TBD if we want this or not, might not be necessary
+   // useFocusEffect(
+   //    useCallback(() => {
+   //       onRefresh();
+   //    }, [])
+   // );
 
    return (
       <View style={styles.container}>
@@ -103,8 +171,13 @@ export default function LibraryScreen() {
             ))}
          </View>
 
-         {/* List or Empty State */}
-         {isEmpty ? (
+         {/* Loader, List or Empty State */}
+         {loading ? (
+            <View style={styles.loadingWrap}>
+               <ActivityIndicator size="small" color="#0ea5e9" />
+               <Text style={styles.loadingText}>Loading…</Text>
+            </View>
+         ) : isEmpty ? (
             <EmptyState activeTab={activeTab} />
          ) : (
             <SectionList
@@ -292,6 +365,9 @@ const styles = StyleSheet.create({
    empty: { alignItems: 'center', paddingVertical: 48 },
    emptyTitle: { fontSize: 16, fontWeight: '700', marginBottom: 6 },
    emptySubtitle: { color: '#6b7280' },
+
+   loadingWrap: { alignItems: 'center', paddingVertical: 48, gap: 8 },
+   loadingText: { marginTop: 8, color: '#6b7280' },
 
    removeButton: { paddingHorizontal: 6, paddingVertical: 2 },
    removeText: { fontSize: 16, color: '#ef4444', fontWeight: '800' },
