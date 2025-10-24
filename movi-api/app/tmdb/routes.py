@@ -1,23 +1,32 @@
 # app/tmdb/routes.py
-import os, json
+import os
+import json
 from urllib.parse import urlencode
+
 import requests
 from flask import request, jsonify, current_app
+
 from . import tmdb_bp
+from ..db import get_db
+from bson.objectid import ObjectId
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE, IMG_SIZE = "https://image.tmdb.org/t/p", "w342"
 
-def _tmdb_key():
+
+def _tmdb_key() -> str:
     return os.getenv("TMDB_V3_KEY", "")
+
 
 def _tmdb_url(path: str, params: dict) -> str:
     q = dict(params or {})
     q["api_key"] = _tmdb_key()
     return f"{TMDB_BASE}{path}?{urlencode(q)}"
 
-def _poster_url(path):
+
+def _poster_url(path: str | None):
     return f"{IMG_BASE}/{IMG_SIZE}{path}" if path else None
+
 
 def _normalize_movie(r: dict) -> dict:
     return {
@@ -29,19 +38,57 @@ def _normalize_movie(r: dict) -> dict:
         "release_date": r.get("release_date") or None,
     }
 
-# --- New: matches desired usage /getmovies?name=Inception ---
-@tmdb_bp.get("/getmovies")
-def get_movies_by_name():
+
+def _fetch_movie_simple(movie_id: int | str) -> dict | None:
+    """Fetch a single movie by TMDB id and return normalized fields."""
+    if not _tmdb_key():
+        return None
+    url = _tmdb_url(f"/movie/{movie_id}", {"language": "en-US"})
+    r = requests.get(url, timeout=15)
+    if not r.ok:
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+        current_app.logger.error("TMDB %s for id=%s %s", r.status_code, movie_id, body)
+        return None
+    data = r.json() if r.content else {}
+    return _normalize_movie(data)
+
+
+@tmdb_bp.get("/healthz")
+def healthz():
+    return jsonify({
+        "ok": True,
+        "auth": {"v3": bool(_tmdb_key())},
+        "routes": [
+            "/getmovies/<movieName>",                             # trimmed payload search (path param)
+            "/movies/user/<id>",                                  # watched movies from a user (path param)
+            "/watchlatermovies/user/<id>",                        # watch later movies from a user (path param)
+            "/addwatchedmovie/user/<userID>/movie/<movieID>",     # POST method, port 5000. add a movie to a user's watchedMovies
+            "/addwatchlatermovie/user/<userID>/movie/<movieID>",  # POST method, port 5000. add a movie to a user's watchedLaterMovies
+            "/createmoviereview",                                 # POST method, create a movie review, stores id in user profile
+            "/api/search/movie",
+            "/api/search/movie/simple",
+            "/api/title/movie/<id>",
+        ],
+    })
+
+
+# --- Custom search endpoint (trimmed payload) ---
+# /getmovies/<movieName>?page=2&pretty=1&save=1
+@tmdb_bp.get("/getmovies/<movieName>")
+def get_movies_by_name(movieName: str):
     """
-    /getmovies?name=Inception
+    /getmovies/<movieName>
     Optional: &page=2&pretty=1&save=1
     Returns the same trimmed payload shape as /api/search/movie/simple
     """
     try:
-        name   = (request.args.get("name") or "").strip()
-        page   = request.args.get("page", "1")
+        name = (movieName or "").strip()
+        page = request.args.get("page", "1")
         pretty = request.args.get("pretty") == "1"
-        save   = request.args.get("save") == "1"
+        save = request.args.get("save") == "1"
 
         if not name:
             return jsonify({"error": "missing name"}), 400
@@ -83,6 +130,377 @@ def get_movies_by_name():
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
 
+
+# --- Movies from a user by Mongo _id ---
+# /movies/user/<id>?limit=50&pretty=1
+@tmdb_bp.get("/movies/user/<id>")
+def get_movies_from_user(id: str):
+    """
+    /movies/user/<id>
+    Reads user.watchedMovies (TMDB int IDs), fetches each from TMDB, returns normalized list.
+    Optional: &limit=50 (default 50), &pretty=1
+    """
+    try:
+        id_str = (id or "").strip()
+        if not id_str:
+            return jsonify({"error": "missing_id"}), 400
+
+        # Must be a valid 24-hex ObjectId
+        try:
+            oid = ObjectId(id_str)
+        except Exception:
+            return jsonify({"error": "invalid_id"}), 400
+
+        pretty = request.args.get("pretty") == "1"
+        try:
+            limit_i = max(0, int(request.args.get("limit", "50")))
+        except Exception:
+            limit_i = 50
+
+        # Ensure TMDB key configured
+        if not _tmdb_key():
+            return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
+
+        db = get_db()
+
+        user = db.users.find_one({"_id": oid}, {"watchedMovies": 1})
+        if not user:
+            return jsonify({"error": "not_found"}), 404
+
+        raw_ids = user.get("watchedMovies") or []
+        # Coerce to ints, de-dup, preserve order
+        seen, movie_ids = set(), []
+        for v in raw_ids:
+            try:
+                iv = int(v)
+            except Exception:
+                continue
+            if iv not in seen:
+                seen.add(iv)
+                movie_ids.append(iv)
+
+        if limit_i:
+            movie_ids = movie_ids[:limit_i]
+
+        items = []
+        for mid in movie_ids:
+            m = _fetch_movie_simple(mid)
+            if m:
+                items.append(m)
+
+        payload = {"userId": id_str, "count": len(items), "items": items}
+        if pretty:
+            return current_app.response_class(
+                json.dumps(payload, indent=2),
+                mimetype="application/json; charset=utf-8",
+            )
+        return jsonify(payload)
+
+    except Exception as e:
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+
+
+# --- Movies from a user by Mongo _id ---
+# /watchlatermovies/user/<id>?limit=50&pretty=1
+@tmdb_bp.get("/watchlatermovies/user/<id>")
+def get_watch_later_movies_from_user(id: str):
+    """
+    /watchlatermovies/user/<id>
+    Reads user.watchLaterMovies (TMDB int IDs), fetches each from TMDB, returns normalized list.
+    Optional: &limit=50 (default 50), &pretty=1
+    """
+    try:
+        id_str = (id or "").strip()
+        if not id_str:
+            return jsonify({"error": "missing_id"}), 400
+
+        # Must be a valid 24-hex ObjectId
+        try:
+            oid = ObjectId(id_str)
+        except Exception:
+            return jsonify({"error": "invalid_id"}), 400
+
+        pretty = request.args.get("pretty") == "1"
+        try:
+            limit_i = max(0, int(request.args.get("limit", "50")))
+        except Exception:
+            limit_i = 50
+
+        # Ensure TMDB key configured
+        if not _tmdb_key():
+            return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
+
+        db = get_db()
+
+        user = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1})
+        if not user:
+            return jsonify({"error": "not_found"}), 404
+
+        raw_ids = user.get("watchLaterMovies") or []
+        # Coerce to ints, de-dup, preserve order
+        seen, movie_ids = set(), []
+        for v in raw_ids:
+            try:
+                iv = int(v)
+            except Exception:
+                continue
+            if iv not in seen:
+                seen.add(iv)
+                movie_ids.append(iv)
+
+        if limit_i:
+            movie_ids = movie_ids[:limit_i]
+
+        items = []
+        for mid in movie_ids:
+            m = _fetch_movie_simple(mid)
+            if m:
+                items.append(m)
+
+        payload = {"userId": id_str, "count": len(items), "items": items}
+        if pretty:
+            return current_app.response_class(
+                json.dumps(payload, indent=2),
+                mimetype="application/json; charset=utf-8",
+            )
+        return jsonify(payload)
+
+    except Exception as e:
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+
+@tmdb_bp.post("/addwatchedmovie/user/<userID>/movie/<movieID>")
+def add_watched_movie(userID: str, movieID: str):
+    try:
+        uid = (userID or "").strip()
+        try:
+            oid = ObjectId(uid)
+        except Exception:
+            return jsonify({"error": "invalid_id"}), 400
+
+        try:
+            mid = int((movieID or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_movie_id"}), 400
+        if mid < -2147483648 or mid > 2147483647:
+            return jsonify({"error": "movie_id_out_of_range_int32"}), 400
+
+        if not _tmdb_key():
+            return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
+        m = _fetch_movie_simple(mid)
+        if not m:
+            return jsonify({"error": "movie_not_found_tmdb", "movieId": mid}), 404
+
+        db = get_db()
+        user = db.users.find_one({"_id": oid}, {"watchedMovies": 1})
+        if not user:
+            return jsonify({"error": "user_not_found"}), 404
+
+        current = user.get("watchedMovies") or []
+        is_dup = False
+        for x in current:
+            try:
+                if int(x) == mid:
+                    is_dup = True
+                    break
+            except Exception:
+                continue
+        if is_dup:
+            return jsonify({"error": "already_in_watched", "movieId": mid}), 409
+
+        if "watchedMovies" not in user:
+            db.users.update_one({"_id": oid}, {"$set": {"watchedMovies": [mid]}})
+        else:
+            db.users.update_one({"_id": oid}, {"$addToSet": {"watchedMovies": mid}})
+
+        after = db.users.find_one({"_id": oid}, {"watchedMovies": 1}) or {}
+        new_list = after.get("watchedMovies") or []
+        try:
+            new_list_len = len(new_list)
+        except Exception:
+            new_list_len = None
+
+        return jsonify({
+            "ok": True,
+            "userId": uid,
+            "movieId": mid,
+            "watchedCount": new_list_len
+        }), 200
+
+    except Exception as e:
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+
+@tmdb_bp.post("/addwatchlatermovie/user/<userID>/movie/<movieID>")
+def add_watch_later_movie(userID: str, movieID: str):
+    try:
+        # validate user id
+        uid = (userID or "").strip()
+        try:
+            oid = ObjectId(uid)
+        except Exception:
+            return jsonify({"error": "invalid_id"}), 400
+
+        # validate movie id (int32)
+        try:
+            mid = int((movieID or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_movie_id"}), 400
+        if mid < -2147483648 or mid > 2147483647:
+            return jsonify({"error": "movie_id_out_of_range_int32"}), 400
+
+        # confirm movie exists in TMDB
+        if not _tmdb_key():
+            return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
+        m = _fetch_movie_simple(mid)
+        if not m:
+            return jsonify({"error": "movie_not_found_tmdb", "movieId": mid}), 404
+
+        db = get_db()
+
+        # ensure user exists
+        user = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1})
+        if not user:
+            return jsonify({"error": "user_not_found"}), 404
+
+        # reject duplicates
+        current = user.get("watchLaterMovies") or []
+        is_dup = False
+        for x in current:
+            try:
+                if int(x) == mid:
+                    is_dup = True
+                    break
+            except Exception:
+                continue
+        if is_dup:
+            return jsonify({"error": "already_in_watch_later", "movieId": mid}), 409
+
+        # create array if missing, else add
+        if "watchLaterMovies" not in user:
+            db.users.update_one({"_id": oid}, {"$set": {"watchLaterMovies": [mid]}})
+        else:
+            db.users.update_one({"_id": oid}, {"$addToSet": {"watchLaterMovies": mid}})
+
+        after = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1}) or {}
+        new_list = after.get("watchLaterMovies") or []
+        return jsonify({
+            "ok": True,
+            "userId": uid,
+            "movieId": mid,
+            "watchLaterCount": len(new_list)
+        }), 200
+
+    except Exception as e:
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+
+@tmdb_bp.post("/createmoviereview")
+def create_movie_review():
+    try:
+        payload = request.get_json(silent=True) or {}
+        user_id = (payload.get("userId") or "").strip()
+        movie_id = payload.get("movieId")
+        rating = payload.get("rating")
+        title = payload.get("title")   # optional
+        body = payload.get("body")     # required
+
+        # validate userId
+        try:
+            oid = ObjectId(user_id)
+        except Exception:
+            return jsonify({"error": "invalid_user_id"}), 400
+
+        # validate movieId (int32)
+        try:
+            mid = int(movie_id)
+        except Exception:
+            return jsonify({"error": "invalid_movie_id"}), 400
+        if not (-2147483648 <= mid <= 2147483647):
+            return jsonify({"error": "movie_id_out_of_range_int32"}), 400
+
+        # validate rating 1..10
+        try:
+            r = int(rating)
+        except Exception:
+            return jsonify({"error": "invalid_rating"}), 400
+        if r < 1 or r > 10:
+            return jsonify({"error": "rating_out_of_range", "min": 1, "max": 10}), 400
+
+        # validate body (required)
+        if not isinstance(body, str) or not body.strip():
+            return jsonify({"error": "missing_body"}), 400
+
+        # check TMDB availability + that the movie exists
+        if not _tmdb_key():
+            return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
+        if not _fetch_movie_simple(mid):
+            return jsonify({"error": "movie_not_found_tmdb", "movieId": mid}), 404
+
+        db = get_db()
+
+        # ensure user exists
+        if not db.users.find_one({"_id": oid}, {"_id": 1}):
+            return jsonify({"error": "user_not_found"}), 404
+
+        now = __import__("datetime").datetime.utcnow()
+
+        # prepare review doc
+        doc = {
+            "movieId": mid,            # Int32 in Mongo
+            "userId": oid,             # ObjectId
+            "rating": r,
+            "title": title if (title is None or isinstance(title, str)) else str(title),
+            "body": body.strip(),
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+        # insert review (unique index on {movieId, userId} recommended)
+        res = db.movieReviews.insert_one(doc)
+        review_id = res.inserted_id
+
+        # add review id to user's movieReviews array (creates if missing, no dups)
+        try:
+            db.users.update_one(
+                {"_id": oid},
+                {"$addToSet": {"movieReviews": review_id}}
+            )
+        except Exception as e:
+            # if this fails (e.g., validator missing movieReviews), surface a helpful error
+            return jsonify({
+                "error": "user_update_failed",
+                "detail": str(e),
+                "reviewId": str(review_id)
+            }), 500
+
+        return jsonify({
+            "ok": True,
+            "id": str(review_id),
+            "movieId": mid,
+            "userId": str(oid),
+            "rating": r
+        }), 201
+
+    except Exception as e:
+        msg = str(e)
+        # duplicate review (if you add the unique index below)
+        if "E11000" in msg:
+            return jsonify({
+                "error": "duplicate_review",
+                "detail": "user already reviewed this movie"
+            }), 409
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": msg}), 500
+
+
+
+# --- RAW TMDB payload (search) ---
 @tmdb_bp.get("/api/search/movie")
 def search_movie_raw():
     try:
@@ -106,13 +524,15 @@ def search_movie_raw():
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
 
+
+# --- Trimmed UI-friendly payload (search) ---
 @tmdb_bp.get("/api/search/movie/simple")
 def search_movie_simple():
     try:
         q = (request.args.get("q") or "").strip()
-        page   = request.args.get("page", "1")
+        page = request.args.get("page", "1")
         pretty = request.args.get("pretty") == "1"
-        save   = request.args.get("save") == "1"
+        save = request.args.get("save") == "1"
         if not q:
             return jsonify({"error": "missing q"}), 400
         if not _tmdb_key():
@@ -152,13 +572,16 @@ def search_movie_simple():
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
 
+
+# --- Title details (RAW payload) ---
 @tmdb_bp.get("/api/title/movie/<id>")
 def title_movie(id: str):
     try:
         if not _tmdb_key():
             return jsonify({"error": "server", "detail": "TMDB_V3_KEY not set"}), 500
         url = _tmdb_url(f"/movie/{id}", {
-            "language": "en-US", "append_to_response": "credits,watch/providers,videos"
+            "language": "en-US",
+            "append_to_response": "credits,watch/providers,videos",
         })
         r = requests.get(url, timeout=15)
         data = r.json() if r.content else {}

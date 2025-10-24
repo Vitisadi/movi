@@ -5,12 +5,18 @@ import React, {
    useEffect,
    ReactNode,
 } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const API_BASE = 'http://localhost:3000';
 
 // Types
 export interface User {
    id: string;
-   name: string;
+   name: string | null;
    email: string;
+   username?: string | null;
+   avatarUrl?: string | null;
+   bio?: string | null;
 }
 
 interface AuthContextType {
@@ -33,6 +39,7 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
    const [user, setUser] = useState<User | null>(null);
    const [isLoading, setIsLoading] = useState(true);
+   const [token, setToken] = useState<string | null>(null);
 
    const isAuthenticated = !!user;
 
@@ -43,12 +50,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
    const checkAuthStatus = async () => {
       try {
-         // TODO: Check for stored auth token and validate with API
-         // For now, just simulate checking stored credentials
-         const storedUser = null; // await getStoredUser();
-         if (storedUser) {
-            setUser(storedUser);
+         const t = await AsyncStorage.getItem('authToken');
+         const u = await AsyncStorage.getItem('user');
+         console.log(t);
+         if (t) {
+            setToken(t);
+            // Optionally fetch user info from API using the token
+            // Example: await fetch(`${API_BASE}/me`, { headers: { Authorization: `Bearer ${t}` } })
+            // If your API has /me endpoint use that instead. Here we skip fetching user to keep it simple.
          }
+
+         if (u) {
+            try {
+               const parsed = JSON.parse(u);
+               // map server user shape to frontend User
+               const mapped: User = {
+                  id: parsed._id || parsed.id,
+                  name: parsed.name ?? null,
+                  email: parsed.email,
+                  username: parsed.username ?? null,
+                  avatarUrl: parsed.avatarUrl ?? null,
+                  bio: parsed.bio ?? null,
+               };
+               setUser(mapped);
+            } catch (e) {
+               console.error('Failed to parse stored user', e);
+            }
+         }
+         console.log(u);
       } catch (error) {
          console.error('Error checking auth status:', error);
       } finally {
@@ -59,9 +88,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
    const login = async (email: string, password: string): Promise<void> => {
       try {
          setIsLoading(true);
-
-         // TODO: Add Login API call when done
-         // TODO: Store auth token in cookies
+         const resp = await fetch(`${API_BASE}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+         });
+         if (!resp.ok) {
+            const j = await resp.json().catch(() => ({}));
+            throw new Error(j.error || 'Login failed');
+         }
+         const data = await resp.json();
+         const t = data.token;
+         const u = data.user;
+         if (t) {
+            await AsyncStorage.setItem('authToken', t);
+            setToken(t);
+         }
+         if (u) {
+            // map server user to frontend shape
+            const mapped: User = {
+               id: u._id || u.id,
+               name: u.name ?? null,
+               email: u.email,
+               username: u.username ?? null,
+               avatarUrl: u.avatarUrl ?? null,
+               bio: u.bio ?? null,
+            };
+            await AsyncStorage.setItem('user', JSON.stringify(u));
+            setUser(mapped);
+         }
       } catch (error) {
          throw new Error('Invalid email or password');
       } finally {
@@ -77,7 +132,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
          setIsLoading(true);
 
-         // TODO: Add Register API call when done
+         const resp = await fetch(`${API_BASE}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, username: name }),
+         });
+         if (!resp.ok) {
+            const j = await resp.json().catch(() => ({}));
+            throw new Error(j.error || 'Registration failed');
+         }
+         // After register you might auto-login or require manual login. We'll auto-login if token returned.
+         const data = await resp.json().catch(() => ({}));
+         if (data.token) {
+            await AsyncStorage.setItem('authToken', data.token);
+            setToken(data.token);
+         }
+         if (data.user) {
+            const u = data.user;
+            const mapped: User = {
+               id: u._id || u.id,
+               name: u.name ?? null,
+               email: u.email,
+               username: u.username ?? null,
+               avatarUrl: u.avatarUrl ?? null,
+               bio: u.bio ?? null,
+            };
+            await AsyncStorage.setItem('user', JSON.stringify(u));
+            setUser(mapped);
+         }
       } catch (error) {
          throw new Error('Registration failed. Please try again.');
       } finally {
@@ -89,8 +171,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
          setIsLoading(true);
 
-         // TODO: Call logout API endpoint
-
+         // Remove stored token and user on logout
+         await AsyncStorage.removeItem('authToken');
+         await AsyncStorage.removeItem('user');
+         setToken(null);
          setUser(null);
       } catch (error) {
          console.error('Error during logout:', error);
