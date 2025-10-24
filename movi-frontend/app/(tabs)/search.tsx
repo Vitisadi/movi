@@ -10,10 +10,12 @@ import {
   Alert,
   Keyboard,
   Modal,
+  Platform,
 } from 'react-native';
 
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
+import { emitLibraryChanged } from '@/lib/library-events';
 
 type Kind = 'movie' | 'book';
 
@@ -35,6 +37,24 @@ type SearchItem = {
 const API_BASE_URL =
   (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) ||
   'http://127.0.0.1:3000';
+
+// TODO: Replace with authenticated user id from login/session
+// Hard-coded for now per instructions
+const HARDCODED_USER_ID = '68c9b2d573fbd318f36537ce';
+
+// Cross-platform notification helper (web uses window.alert; native uses Alert)
+function notify(title: string, message?: string) {
+  if (Platform.OS === 'web') {
+    const text = message ? `${title}\n${message}` : title;
+    if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+      window.alert(text);
+    } else {
+      console.log('NOTIFY:', text);
+    }
+  } else {
+    Alert.alert(title, message);
+  }
+}
 
 const SAMPLE_ITEMS: SearchItem[] = [
   {
@@ -137,12 +157,38 @@ export default function SearchScreen() {
     action: 'watched' | 'later',
     item: SearchItem
   ) => {
-    // Placeholder for backend API call
-    // TODO: Replace alert with real API integration
-    Alert.alert(
-      action === 'watched' ? 'Add to Watched' : 'Add to Watch Later',
-      `${item.title} (${item.kind})`
-    );
+    try {
+      if (item.kind !== 'movie') {
+        notify('Not supported', 'Only movies can be added.');
+        return;
+      }
+      const movieId = String(item.id || '').trim();
+      if (!movieId) {
+        notify('Missing movie', 'Could not determine movie id.');
+        return;
+      }
+
+      const path =
+        action === 'watched'
+          ? `/addwatchedmovie/user/${HARDCODED_USER_ID}/movie/${encodeURIComponent(movieId)}`
+          : `/addwatchlatermovie/user/${HARDCODED_USER_ID}/movie/${encodeURIComponent(movieId)}`;
+      const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST' });
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const body = isJson ? await res.json() : undefined;
+      if (!res.ok) {
+        const msg = body?.error || `HTTP ${res.status}`;
+        notify('Action failed', String(msg));
+        return;
+      }
+      notify(
+        action === 'watched' ? 'Added to Watched' : 'Added to Watch Later',
+        `${item.title} (${item.kind})`
+      );
+      // Notify library to refresh
+      emitLibraryChanged();
+    } catch (err: any) {
+      notify('Network error', String(err?.message || err));
+    }
   };
 
   const handleAddWatched = (item: SearchItem) => sendToBackend('watched', item);
@@ -156,7 +202,7 @@ export default function SearchScreen() {
     setActiveQuery(q);
     setHasSearched(true);
     try {
-      const url = `${API_BASE_URL}/getmovies?name=${encodeURIComponent(q)}`;
+      const url = `${API_BASE_URL}/getmovies/${encodeURIComponent(q)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -170,7 +216,7 @@ export default function SearchScreen() {
       }));
       setApiResults(mapped);
     } catch (err: any) {
-      Alert.alert('Search failed', String(err?.message || err));
+      notify('Search failed', String(err?.message || err));
       setApiResults([]);
     } finally {
       setSubmitting(false);
@@ -187,19 +233,46 @@ export default function SearchScreen() {
 
   const closeReview = () => setReviewVisible(false);
 
-  const submitReview = () => {
+  const submitReview = async () => {
     const ratingNum = Number(reviewRating);
     if (!ratingNum || ratingNum < 1 || ratingNum > 10) {
-      Alert.alert('Invalid rating', 'Please enter a rating from 1 to 10.');
+      notify('Invalid rating', 'Please enter a rating from 1 to 10.');
       return;
     }
     if (!reviewItem) return;
-    // Placeholder for backend integration
-    Alert.alert(
-      'Review submitted',
-      `${reviewItem.title} (${reviewItem.kind})\nRating: ${ratingNum}\nTitle: ${reviewTitle || '(none)'}\nReview: ${reviewText || '(none)'}`
-    );
-    setReviewVisible(false);
+    if (reviewItem.kind !== 'movie') {
+      notify('Not supported', 'Only movies can be reviewed.');
+      return;
+    }
+    const movieIdNum = Number(reviewItem.id);
+    if (!Number.isFinite(movieIdNum)) {
+      notify('Missing movie', 'Could not determine movie id.');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/createmoviereview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: HARDCODED_USER_ID, // TODO: replace with logged-in user id
+          movieId: movieIdNum,
+          rating: ratingNum,
+          title: reviewTitle || undefined,
+          body: reviewText || '',
+        }),
+      });
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const body = isJson ? await res.json() : undefined;
+      if (!res.ok) {
+        const detail = body?.detail || body?.error || `HTTP ${res.status}`;
+        notify('Review failed', String(detail));
+        return;
+      }
+      notify('Review submitted', `${reviewItem.title} (Rating: ${ratingNum})`);
+      setReviewVisible(false);
+    } catch (err: any) {
+      notify('Network error', String(err?.message || err));
+    }
   };
 
   return (
