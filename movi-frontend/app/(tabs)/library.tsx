@@ -143,6 +143,7 @@ export default function LibraryScreen() {
    }, []);
 
    // Also refresh whenever this tab gains focus
+   // Commented for now TBD if we want this or not, might not be necessary
    // useFocusEffect(
    //    useCallback(() => {
    //       onRefresh();
