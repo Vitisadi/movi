@@ -51,10 +51,6 @@ const API_BASE_URL =
   (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) ||
   'http://127.0.0.1:3000';
 
-// TODO: Replace with authenticated user id from login/session
-// Hard-coded for 
-const HARDCODED_USER_ID = '68c9b2d573fbd318f36537ce';
-
 export default function LibraryScreen() {
    const [activeTab, setActiveTab] = useState<TabKey>('Watched');
    const [refreshing, setRefreshing] = useState(false);
@@ -67,7 +63,7 @@ export default function LibraryScreen() {
          ? { movies: watchedMovies, books: [] as Book[] }
          : { movies: laterMovies, books: [] as Book[] };
    const { user } = useAuth();
-   console.log('library', user);
+   const USER_ID = user?.id ?? '68c9b2d573fbd318f36537ce';
    const totalCount =
       (picked.movies?.length || 0) + (picked.books?.length || 0);
    const isEmpty = totalCount === 0;
@@ -101,7 +97,7 @@ export default function LibraryScreen() {
    }
 
    const loadWatched = async () => {
-      const url = `${API_BASE_URL}/movies/user/${HARDCODED_USER_ID}`;
+      const url = `${API_BASE_URL}/movies/user/${USER_ID}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Watched HTTP ${res.status}`);
       const data = await res.json();
@@ -110,7 +106,7 @@ export default function LibraryScreen() {
    };
 
    const loadLater = async () => {
-      const url = `${API_BASE_URL}/watchlatermovies/user/${HARDCODED_USER_ID}`;
+      const url = `${API_BASE_URL}/watchlatermovies/user/${USER_ID}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`WatchLater HTTP ${res.status}`);
       const data = await res.json();

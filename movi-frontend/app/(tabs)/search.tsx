@@ -16,6 +16,7 @@ import {
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { emitLibraryChanged } from '@/lib/library-events';
+import { useAuth } from '@/contexts/AuthContext';
 
 type Kind = 'movie' | 'book';
 
@@ -37,10 +38,6 @@ type SearchItem = {
 const API_BASE_URL =
   (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) ||
   'http://127.0.0.1:3000';
-
-// TODO: Replace with authenticated user id from login/session
-// Hard-coded for now per instructions
-const HARDCODED_USER_ID = '68c9b2d573fbd318f36537ce';
 
 // Cross-platform notification helper (web uses window.alert; native uses Alert)
 function notify(title: string, message?: string) {
@@ -137,6 +134,10 @@ export default function SearchScreen() {
   const [reviewText, setReviewText] = useState('');
   const [apiResults, setApiResults] = useState<SearchItem[]>([]);
 
+  const { user } = useAuth();
+  console.log(user)
+  const USER_ID = user?.id ?? '68c9b2d573fbd318f36537ce';
+
   // Filter by activeQuery after the user presses Search
   const results = useMemo(() => {
     if (!hasSearched) return [] as SearchItem[];
@@ -170,8 +171,8 @@ export default function SearchScreen() {
 
       const path =
         action === 'watched'
-          ? `/addwatchedmovie/user/${HARDCODED_USER_ID}/movie/${encodeURIComponent(movieId)}`
-          : `/addwatchlatermovie/user/${HARDCODED_USER_ID}/movie/${encodeURIComponent(movieId)}`;
+          ? `/addwatchedmovie/user/${USER_ID}/movie/${encodeURIComponent(movieId)}`
+          : `/addwatchlatermovie/user/${USER_ID}/movie/${encodeURIComponent(movieId)}`;
       const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST' });
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : undefined;
@@ -254,7 +255,7 @@ export default function SearchScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: HARDCODED_USER_ID, // TODO: replace with logged-in user id
+          userId: USER_ID, // TODO: replace with logged-in user id
           movieId: movieIdNum,
           rating: ratingNum,
           title: reviewTitle || undefined,
