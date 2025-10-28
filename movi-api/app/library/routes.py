@@ -60,8 +60,8 @@ def search_book_by_title(title: str, num_results: int):
 def get_book_by_id(id: str):
     url = f"https://openlibrary.org/works/{id}.json"
     try:
-        response = requests.get(url)
-
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
         if response.status_code == 200:
             result = response.json()
             return result
@@ -86,7 +86,7 @@ def get_books_by_user(id: str):
     try: 
         oid = ObjectId(id)
 
-        user = db.user.find_one({"_id": oid, "readBooks": 1})
+        user = db.users.find_one({"_id": oid})
         if user is None:
             return jsonify({"error": "user_not_found", "detail": "The requested user was not found"}), 404
         
@@ -106,7 +106,7 @@ def get_tbr_by_user(id: str):
     try: 
         oid = ObjectId(id)
 
-        user = db.user.find_one({"_id": oid, "toBeReadBooks": 1})
+        user = db.users.find_one({"_id": oid})
         if user is None:
             return jsonify({"error": "user_not_found", "detail": "The requested user was not found"}), 404
         
@@ -130,7 +130,7 @@ def add_read_book(user_id: str, book_id: str):
         if b is None:
             return jsonify({"error": "book_not_found", "detail": "The requested book was not found"}), 404 
         
-        user = db.users.find_one({"_id": oid, "readBooks": 1})
+        user = db.users.find_one({"_id": oid})
         if user is None: 
             return jsonify({"error": "user_not_found", "detail": "The requested user was not found"}), 404 
         
@@ -144,9 +144,9 @@ def add_read_book(user_id: str, book_id: str):
             return jsonify({"error": "duplicate_entry", "detail": "The requested entry to add is already registered as read"}), 409
         
         if "readBooks" not in user:
-            db.user.update_one({"_id", oid}, {"$set", [book_id]})
+            db.user.update_one({"_id": oid}, {"$set": {"readBooks": book_id}})
         else:
-            db.user.update_one({"_id", oid}, {"$addToSet", book_id})
+            db.user.update_one({"_id": oid}, {"$set": {"readBooks": book_id}})
 
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
@@ -164,7 +164,7 @@ def add_tbr_book(user_id: str, book_id: str):
         if b is None:
             return jsonify({"error": "book_not_found", "detail": "The requested book was not found"}), 404 
         
-        user = db.users.find_one({"_id": oid, "toBeReadBooks": 1})
+        user = db.users.find_one({"_id": oid})
         if user is None: 
             return jsonify({"error": "user_not_found", "detail": "The requested user was not found"}), 404 
         
@@ -178,9 +178,9 @@ def add_tbr_book(user_id: str, book_id: str):
             return jsonify({"error": "duplicate_entry", "detail": "The requested entry to add is already registered as to be read"}), 409
         
         if "toBeReadBooks" not in user:
-            db.user.update_one({"_id", oid}, {"$set", [book_id]})
+            db.user.update_one({"_id": oid}, {"$set": {"toBeReadBooks": book_id}})
         else:
-            db.user.update_one({"_id", oid}, {"$addToSet", book_id})
+            db.user.update_one({"_id": oid}, {"$set": {"toBeReadBooks": book_id}})
 
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
