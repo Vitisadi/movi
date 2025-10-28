@@ -64,6 +64,7 @@ def get_book_by_id(id: str):
 
         if response.status_code == 200:
             result = response.json()
+            return result
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
 
