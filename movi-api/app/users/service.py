@@ -3,6 +3,41 @@ from typing import Optional, List, Dict, Any
 from bson.objectid import ObjectId
 from .schemas import UserIn, UserOut
 from ..db import get_db
+from datetime import datetime
+from bson import ObjectId
+from ..db import get_db
+
+def add_activity(user_id: ObjectId, activity: str, meta: dict | None = None) -> str:
+    db = get_db()
+    doc = {
+        "userId": user_id,
+        "activity": str(activity),
+        "meta": meta if isinstance(meta, dict) else None,
+        "createdAt": datetime.utcnow(),
+    }
+    res = db.userActivities.insert_one(doc)
+    return str(res.inserted_id)
+
+def get_user_activity(user_id: ObjectId, limit: int = 50) -> list[dict]:
+    db = get_db()
+    cur = db.userActivities.find({"userId": user_id}).sort("createdAt", -1).limit(limit)
+    out = []
+    for d in cur:
+        d["_id"] = str(d["_id"])
+        d["userId"] = str(d["userId"])
+        out.append(d)
+    return out
+
+def get_user_activity_with_friends(user_id: ObjectId, friend_ids: list[ObjectId], limit: int = 100) -> list[dict]:
+    db = get_db()
+    ids = [user_id] + list(friend_ids or [])
+    cur = db.userActivities.find({"userId": {"$in": ids}}).sort("createdAt", -1).limit(limit)
+    out = []
+    for d in cur:
+        d["_id"] = str(d["_id"])
+        d["userId"] = str(d["userId"])
+        out.append(d)
+    return out
 
 def _serialize(doc: Optional[dict]) -> Optional[dict]:
     if not doc:
