@@ -62,12 +62,14 @@ def healthz():
         "ok": True,
         "auth": {"v3": bool(_tmdb_key())},
         "routes": [
-            "/getmovies/<movieName>",                             # trimmed payload search (path param)
-            "/movies/user/<id>",                                  # watched movies from a user (path param)
-            "/watchlatermovies/user/<id>",                        # watch later movies from a user (path param)
-            "/addwatchedmovie/user/<userID>/movie/<movieID>",     # POST method, port 5000. add a movie to a user's watchedMovies
-            "/addwatchlatermovie/user/<userID>/movie/<movieID>",  # POST method, port 5000. add a movie to a user's watchedLaterMovies
-            "/createmoviereview",                                 # POST method, create a movie review, stores id in user profile
+            "/getmovies/<movieName>",                               # trimmed payload search (path param)
+            "/movies/user/<id>",                                    # watched movies from a user (path param)
+            "/watchlatermovies/user/<id>",                          # watch later movies from a user (path param)
+            "/addwatchedmovie/user/<userID>/movie/<movieID>",       # POST method, add a movie to a user's watchedMovies
+            "/addwatchlatermovie/user/<userID>/movie/<movieID>",    # POST method, add a movie to a user's watchedLaterMovies
+            "/createmoviereview",                                   # POST method, create a movie review, stores id in user profile
+            "/removewatchedmovie/user/<userID>/movie/<movieID>",    # POST method, delete a movie from a user's watch list
+            "/removewatchlatermovie/user/<userID>/movie/<movieID>", # POST method, delete a movie from a user's watch later list
             "/api/search/movie",
             "/api/search/movie/simple",
             "/api/title/movie/<id>",
@@ -589,6 +591,92 @@ def title_movie(id: str):
             current_app.logger.error("TMDB %s %s", r.status_code, data)
             return jsonify({"error": "upstream", "status": r.status_code, "detail": data}), 502
         return jsonify(data)
+    except Exception as e:
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+@tmdb_bp.delete("/removewatchedmovie/user/<userID>/movie/<movieID>")
+def remove_watched_movie(userID: str, movieID: str):
+    try:
+        # validate user id
+        try:
+            oid = ObjectId((userID or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_id"}), 400
+
+        # validate movie id (int32)
+        try:
+            mid = int((movieID or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_movie_id"}), 400
+        if mid < -2147483648 or mid > 2147483647:
+            return jsonify({"error": "movie_id_out_of_range_int32"}), 400
+
+        db = get_db()
+
+        # ensure user exists
+        user = db.users.find_one({"_id": oid}, {"watchedMovies": 1})
+        if not user:
+            return jsonify({"error": "user_not_found"}), 404
+
+        # pull movie id (no-op if not present)
+        res = db.users.update_one({"_id": oid}, {"$pull": {"watchedMovies": mid}})
+
+        # fetch new count for convenience
+        after = db.users.find_one({"_id": oid}, {"watchedMovies": 1}) or {}
+        new_list = after.get("watchedMovies") or []
+
+        return jsonify({
+            "ok": True,
+            "userId": str(oid),
+            "movieId": mid,
+            "removed": bool(res.modified_count),
+            "watchedCount": len(new_list)
+        }), 200
+
+    except Exception as e:
+        current_app.logger.exception("server error")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+@tmdb_bp.delete("/removewatchlatermovie/user/<userID>/movie/<movieID>")
+def remove_watch_later_movie(userID: str, movieID: str):
+    try:
+        # validate user id
+        try:
+            oid = ObjectId((userID or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_id"}), 400
+
+        # validate movie id (int32)
+        try:
+            mid = int((movieID or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_movie_id"}), 400
+        if mid < -2147483648 or mid > 2147483647:
+            return jsonify({"error": "movie_id_out_of_range_int32"}), 400
+
+        db = get_db()
+
+        # ensure user exists
+        user = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1})
+        if not user:
+            return jsonify({"error": "user_not_found"}), 404
+
+        # pull movie id (no-op if not present)
+        res = db.users.update_one({"_id": oid}, {"$pull": {"watchLaterMovies": mid}})
+
+        # fetch new count for convenience
+        after = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1}) or {}
+        new_list = after.get("watchLaterMovies") or []
+
+        return jsonify({
+            "ok": True,
+            "userId": str(oid),
+            "movieId": mid,
+            "removed": bool(res.modified_count),
+            "watchLaterCount": len(new_list)
+        }), 200
+
     except Exception as e:
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
