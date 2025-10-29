@@ -76,6 +76,57 @@ def list_user_activity(userId: str):
         current_app.logger.exception("list_user_activity failed")
         return jsonify({"error": "server", "detail": str(e)}), 500
 
+@users_bp.get("/<userId>/activity/friends")
+def list_user_activity_with_friends(userId: str):
+    """
+    GetUsersActivityWithFriends: returns recent activities for user + friends.
+    Optional query: ?friends=<id1,id2,...>&limit=100
+    Effective URL: /users/<userId>/activity/friends
+    """
+    try:
+        try:
+            oid = ObjectId((userId or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_user_id"}), 400
+
+        # Parse friends from query or fallback to user's stored friends
+        friends_q = (request.args.get("friends") or "").strip()
+        friend_ids = []
+        if friends_q:
+            for s in friends_q.split(","):
+                s = s.strip()
+                if not s:
+                    continue
+                try:
+                    friend_ids.append(ObjectId(s))
+                except Exception:
+                    continue
+        else:
+            db = get_db()
+            u = db.users.find_one({"_id": oid}, {"friends": 1}) or {}
+            for s in (u.get("friends") or []):
+                try:
+                    friend_ids.append(ObjectId(str(s)))
+                except Exception:
+                    continue
+
+        try:
+            limit = max(1, min(500, int(request.args.get("limit", "100"))))
+        except Exception:
+            limit = 100
+
+        data = service.get_user_activity_with_friends(oid, friend_ids, limit)
+        return jsonify({
+            "ok": True,
+            "userId": str(oid),
+            "friendCount": len(friend_ids),
+            "count": len(data),
+            "items": data
+        })
+    except Exception as e:
+        current_app.logger.exception("list_user_activity_with_friends failed")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
 @users_bp.get("")
 def list_users_route():
     return jsonify(service.list_users())
