@@ -6,6 +6,7 @@ import React, {
    ReactNode,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 
 const API_BASE = 'http://localhost:3000';
 
@@ -116,6 +117,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
             };
             await AsyncStorage.setItem('user', JSON.stringify(u));
             setUser(mapped);
+
+            router.replace('/(tabs)/profile');
          }
       } catch (error) {
          throw new Error('Invalid email or password');
@@ -159,6 +162,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             };
             await AsyncStorage.setItem('user', JSON.stringify(u));
             setUser(mapped);
+            router.replace('/(tabs)/profile');
          }
       } catch (error) {
          throw new Error('Registration failed. Please try again.');
