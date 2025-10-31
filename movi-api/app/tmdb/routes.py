@@ -2,6 +2,7 @@
 import os
 import json
 from urllib.parse import urlencode
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from flask import request, jsonify, current_app
@@ -54,6 +55,55 @@ def _fetch_movie_simple(movie_id: int | str) -> dict | None:
         return None
     data = r.json() if r.content else {}
     return _normalize_movie(data)
+
+
+def _fetch_movies_parallel_ordered(movie_ids: list[int] | list[str], max_workers: int = 10) -> list[dict]:
+    """Fetch multiple movies from TMDB in parallel, preserving input order.
+
+    Any items that fail resolve to None and are filtered out.
+    """
+    try:
+        n = len(movie_ids)
+    except Exception:
+        movie_ids = list(movie_ids or [])
+        n = len(movie_ids)
+
+    if n == 0:
+        return []
+
+    # Cap workers 
+    workers = max(1, min(int(max_workers or 1), n))
+
+    # Fallback to sequential for small lists
+    if workers == 1:
+        items = []
+        for mid in movie_ids:
+            m = _fetch_movie_simple(mid)
+            if m:
+                items.append(m)
+        return items
+
+    results: list[dict | None] = [None] * n
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_fetch_movie_simple, movie_ids[i]): i for i in range(n)}
+            for fut in as_completed(futures):
+                i = futures[fut]
+                try:
+                    results[i] = fut.result()
+                except Exception:
+                    results[i] = None
+                    
+    except Exception:
+        # If thread pool fails for any reason, fall back to sequential
+        items = []
+        for mid in movie_ids:
+            m = _fetch_movie_simple(mid)
+            if m:
+                items.append(m)
+        return items
+
+    return [m for m in results if m]
 
 
 @tmdb_bp.get("/healthz")
@@ -184,11 +234,7 @@ def get_movies_from_user(id: str):
         if limit_i:
             movie_ids = movie_ids[:limit_i]
 
-        items = []
-        for mid in movie_ids:
-            m = _fetch_movie_simple(mid)
-            if m:
-                items.append(m)
+        items = _fetch_movies_parallel_ordered(movie_ids)
 
         payload = {"userId": id_str, "count": len(items), "items": items}
         if pretty:
@@ -255,11 +301,7 @@ def get_watch_later_movies_from_user(id: str):
         if limit_i:
             movie_ids = movie_ids[:limit_i]
 
-        items = []
-        for mid in movie_ids:
-            m = _fetch_movie_simple(mid)
-            if m:
-                items.append(m)
+        items = _fetch_movies_parallel_ordered(movie_ids)
 
         payload = {"userId": id_str, "count": len(items), "items": items}
         if pretty:
