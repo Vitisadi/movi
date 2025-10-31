@@ -16,6 +16,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { router } from 'expo-router';
 
 export default function ProfileScreen() {
    const { user, logout } = useAuth();
@@ -48,6 +49,31 @@ export default function ProfileScreen() {
    const handleEditProfile = () => {
       Alert.alert('Coming Soon', 'Profile editing will be available soon!');
    };
+
+   if (!user) {
+      return (
+         <ThemedView style={styles.authContainer}>
+            <TouchableOpacity
+               style={[styles.authButton, { backgroundColor: tintColor }]}
+               onPress={() => router.push('/(auth)/login')}
+            >
+               <Text style={styles.authButtonText}>Log In</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+               style={[
+                  styles.authButton,
+                  styles.authButtonSecondary,
+                  { borderColor: tintColor },
+               ]}
+               onPress={() => router.push('/(auth)/register')}
+            >
+               <Text style={[styles.authButtonText, { color: tintColor }]}>
+                  Sign Up
+               </Text>
+            </TouchableOpacity>
+         </ThemedView>
+      );
+   }
 
    return (
       <ParallaxScrollView
@@ -373,6 +399,29 @@ const COVER_IMG =
    'https://images.unsplash.com/photo-1541701494587-cb58502866ab?q=80&w=2070&auto=format&fit=crop';
 
 const styles = StyleSheet.create({
+   // Auth-only view (when not logged in)
+   authContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+      gap: 12,
+   },
+   authButton: {
+      width: '25%',
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+   },
+   authButtonSecondary: {
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+   },
+   authButtonText: {
+      color: '#fff',
+      fontWeight: '700',
+      fontSize: 16,
+   },
    // Header
    headerImageContainer: {
       flex: 1,
