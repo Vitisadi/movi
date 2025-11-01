@@ -71,7 +71,7 @@ def _fetch_movies_parallel_ordered(movie_ids: list[int] | list[str], max_workers
     if n == 0:
         return []
 
-    # Cap workers 
+    # Cap workers
     workers = max(1, min(int(max_workers or 1), n))
 
     # Fallback to sequential for small lists
@@ -93,7 +93,7 @@ def _fetch_movies_parallel_ordered(movie_ids: list[int] | list[str], max_workers
                     results[i] = fut.result()
                 except Exception:
                     results[i] = None
-                    
+
     except Exception:
         # If thread pool fails for any reason, fall back to sequential
         items = []
@@ -517,6 +517,17 @@ def create_movie_review():
             )
         except Exception as e:
             # if this fails (e.g., validator missing movieReviews), surface a helpful error
+            return jsonify({
+                "error": "user_update_failed",
+                "detail": str(e),
+                "reviewId": str(review_id)
+            }), 500
+
+        # ensure the movie is in watchedMovies and removed from watchLaterMovies
+        try:
+            db.users.update_one({"_id": oid}, {"$addToSet": {"watchedMovies": mid}})
+            db.users.update_one({"_id": oid}, {"$pull": {"watchLaterMovies": mid}})
+        except Exception as e:
             return jsonify({
                 "error": "user_update_failed",
                 "detail": str(e),
