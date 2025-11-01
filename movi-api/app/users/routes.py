@@ -2,21 +2,19 @@
 from flask import request, jsonify, current_app
 from bson import ObjectId
 
-from . import users_bp, service  # reuse the blueprint created in app/users/__init__.py
+from . import users_bp, service   # reuse blueprint created in app/users/__init__.py
 from ..db import get_db
 
 
-# ---------- Activity Endpoints ----------
+# --------- Activity (auto-logged by other blueprints, but POST remains for non-TMDB actions) ---------
 
 @users_bp.post("/<userId>/activity")
 def add_user_activity(userId: str):
     """
-    AddActivity: inserts an activity row and pushes its id to the user's `activities` array (newest first).
-    Effective URL (with blueprint prefix): /users/<userId>/activity
+    AddActivity (manual): for non-TMDB actions you still want to log (e.g., followed a friend).
     Body: { "activity": "<string>", "meta": { ... } }  # meta optional
     """
     try:
-        # Validate user id & existence
         try:
             oid = ObjectId((userId or "").strip())
         except Exception:
@@ -32,19 +30,16 @@ def add_user_activity(userId: str):
         if not activity:
             return jsonify({"error": "missing_activity"}), 400
 
-        # Create activity doc
         act_id = service.add_activity(oid, activity, meta)
 
-        # Push activity id to user's list, newest at front
+        # newest first
         db.users.update_one(
             {"_id": oid},
             {"$push": {"activities": {"$each": [ObjectId(act_id)], "$position": 0}}}
         )
 
-        # Optional: return count
         u = db.users.find_one({"_id": oid}, {"activities": 1}) or {}
         count = len(u.get("activities") or [])
-
         return jsonify({"ok": True, "activityId": act_id, "userId": str(oid), "activitiesCount": count}), 201
 
     except Exception as e:
@@ -54,11 +49,7 @@ def add_user_activity(userId: str):
 
 @users_bp.get("/<userId>/activity")
 def list_user_activity(userId: str):
-    """
-    GetUsersActivity: returns recent activities for a user.
-    Optional query: ?limit=50
-    Effective URL: /users/<userId>/activity
-    """
+    """GetUsersActivity: returns recent activities for a user. ?limit=50 (default 50)"""
     try:
         try:
             oid = ObjectId((userId or "").strip())
@@ -76,12 +67,13 @@ def list_user_activity(userId: str):
         current_app.logger.exception("list_user_activity failed")
         return jsonify({"error": "server", "detail": str(e)}), 500
 
+
 @users_bp.get("/<userId>/activity/friends")
 def list_user_activity_with_friends(userId: str):
     """
     GetUsersActivityWithFriends: returns recent activities for user + friends.
-    Optional query: ?friends=<id1,id2,...>&limit=100
-    Effective URL: /users/<userId>/activity/friends
+    Optional: ?friends=<id1,id2,...>&limit=100
+    If ?friends is omitted, tries user's stored `friends` array.
     """
     try:
         try:
@@ -89,7 +81,6 @@ def list_user_activity_with_friends(userId: str):
         except Exception:
             return jsonify({"error": "invalid_user_id"}), 400
 
-        # Parse friends from query or fallback to user's stored friends
         friends_q = (request.args.get("friends") or "").strip()
         friend_ids = []
         if friends_q:
@@ -134,7 +125,7 @@ def list_users_route():
 @users_bp.get("/by-email/<email>")
 def get_user_route(email):
     user = service.get_user_by_email(email)
-    return (jsonify(user), 200) if user else (jsonify({"error": "not_found"}), 404)
+    return (jsonify(user), 200) if user else (jsonify({"error":"not_found"}), 404)
 
 @users_bp.post("")
 def create_user_route():

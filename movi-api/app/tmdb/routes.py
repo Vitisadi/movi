@@ -2,6 +2,7 @@
 import os
 import json
 from urllib.parse import urlencode
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from flask import request, jsonify, current_app
@@ -9,6 +10,9 @@ from flask import request, jsonify, current_app
 from . import tmdb_bp
 from ..db import get_db
 from bson.objectid import ObjectId
+
+from ..users.service import add_activity as users_add_activity
+from bson import ObjectId
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE, IMG_SIZE = "https://image.tmdb.org/t/p", "w342"
@@ -54,6 +58,55 @@ def _fetch_movie_simple(movie_id: int | str) -> dict | None:
         return None
     data = r.json() if r.content else {}
     return _normalize_movie(data)
+
+
+def _fetch_movies_parallel_ordered(movie_ids: list[int] | list[str], max_workers: int = 10) -> list[dict]:
+    """Fetch multiple movies from TMDB in parallel, preserving input order.
+
+    Any items that fail resolve to None and are filtered out.
+    """
+    try:
+        n = len(movie_ids)
+    except Exception:
+        movie_ids = list(movie_ids or [])
+        n = len(movie_ids)
+
+    if n == 0:
+        return []
+
+    # Cap workers
+    workers = max(1, min(int(max_workers or 1), n))
+
+    # Fallback to sequential for small lists
+    if workers == 1:
+        items = []
+        for mid in movie_ids:
+            m = _fetch_movie_simple(mid)
+            if m:
+                items.append(m)
+        return items
+
+    results: list[dict | None] = [None] * n
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_fetch_movie_simple, movie_ids[i]): i for i in range(n)}
+            for fut in as_completed(futures):
+                i = futures[fut]
+                try:
+                    results[i] = fut.result()
+                except Exception:
+                    results[i] = None
+
+    except Exception:
+        # If thread pool fails for any reason, fall back to sequential
+        items = []
+        for mid in movie_ids:
+            m = _fetch_movie_simple(mid)
+            if m:
+                items.append(m)
+        return items
+
+    return [m for m in results if m]
 
 
 @tmdb_bp.get("/healthz")
@@ -184,11 +237,7 @@ def get_movies_from_user(id: str):
         if limit_i:
             movie_ids = movie_ids[:limit_i]
 
-        items = []
-        for mid in movie_ids:
-            m = _fetch_movie_simple(mid)
-            if m:
-                items.append(m)
+        items = _fetch_movies_parallel_ordered(movie_ids)
 
         payload = {"userId": id_str, "count": len(items), "items": items}
         if pretty:
@@ -255,11 +304,7 @@ def get_watch_later_movies_from_user(id: str):
         if limit_i:
             movie_ids = movie_ids[:limit_i]
 
-        items = []
-        for mid in movie_ids:
-            m = _fetch_movie_simple(mid)
-            if m:
-                items.append(m)
+        items = _fetch_movies_parallel_ordered(movie_ids)
 
         payload = {"userId": id_str, "count": len(items), "items": items}
         if pretty:
@@ -324,6 +369,12 @@ def add_watched_movie(userID: str, movieID: str):
             new_list_len = len(new_list)
         except Exception:
             new_list_len = None
+
+        _log_activity(
+            oid,
+            "Add movie to watched",
+            {"movieId": mid, "from": "add_watched", "title": (m or {}).get("title")}
+        )
 
         return jsonify({
             "ok": True,
@@ -390,6 +441,13 @@ def add_watch_later_movie(userID: str, movieID: str):
 
         after = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1}) or {}
         new_list = after.get("watchLaterMovies") or []
+        
+        _log_activity(
+            oid,
+            "Add movie to Watch Later",
+            {"movieId": mid, "from": "add_watch_later", "title": (m or {}).get("title")}
+        )
+
         return jsonify({
             "ok": True,
             "userId": uid,
@@ -480,6 +538,27 @@ def create_movie_review():
                 "detail": str(e),
                 "reviewId": str(review_id)
             }), 500
+
+        # ensure the movie is in watchedMovies and removed from watchLaterMovies
+        try:
+            db.users.update_one({"_id": oid}, {"$addToSet": {"watchedMovies": mid}})
+            db.users.update_one({"_id": oid}, {"$pull": {"watchLaterMovies": mid}})
+        except Exception as e:
+            return jsonify({
+                "error": "user_update_failed",
+                "detail": str(e),
+                "reviewId": str(review_id)
+            }), 500
+
+        _log_activity(
+            oid,
+            "Reviewed movie",
+            {
+                "movieId": mid,
+                "rating": r,
+                "title": (title if isinstance(title, str) else None),
+            }
+        )
 
         return jsonify({
             "ok": True,
@@ -626,6 +705,13 @@ def remove_watched_movie(userID: str, movieID: str):
         after = db.users.find_one({"_id": oid}, {"watchedMovies": 1}) or {}
         new_list = after.get("watchedMovies") or []
 
+        if res.modified_count:
+            _log_activity(
+                oid,
+                "Removed from Watched",
+                {"movieId": mid}
+            )
+
         return jsonify({
             "ok": True,
             "userId": str(oid),
@@ -669,6 +755,13 @@ def remove_watch_later_movie(userID: str, movieID: str):
         after = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1}) or {}
         new_list = after.get("watchLaterMovies") or []
 
+        if res.modified_count:
+            _log_activity(
+                oid,
+                "Removed from Watch Later",
+                {"movieId": mid}
+            )
+
         return jsonify({
             "ok": True,
             "userId": str(oid),
@@ -680,4 +773,22 @@ def remove_watch_later_movie(userID: str, movieID: str):
     except Exception as e:
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
+
+def _log_activity(user_oid: ObjectId, activity: str, meta: dict | None = None) -> str | None:
+    """
+    Create an activity row via users.service and push its id to the user's
+    `activities` array (newest first). Failures are swallowed so TMDB ops
+    don't error out because of logging.
+    """
+    try:
+        act_id = users_add_activity(user_oid, activity, meta if isinstance(meta, dict) else None)
+        db = get_db()
+        db.users.update_one(
+            {"_id": user_oid},
+            {"$push": {"activities": {"$each": [ObjectId(act_id)], "$position": 0}}}
+        )
+        return str(act_id)
+    except Exception:
+        current_app.logger.warning("activity log failed for user %s", user_oid)
+        return None
 
