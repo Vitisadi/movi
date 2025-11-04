@@ -16,6 +16,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { router } from 'expo-router';
 
 export default function ProfileScreen() {
    const { user, logout } = useAuth();
@@ -49,6 +50,31 @@ export default function ProfileScreen() {
       Alert.alert('Coming Soon', 'Profile editing will be available soon!');
    };
 
+   if (!user) {
+      return (
+         <ThemedView style={styles.authContainer}>
+            <TouchableOpacity
+               style={[styles.authButton, { backgroundColor: tintColor }]}
+               onPress={() => router.push('/(auth)/login')}
+            >
+               <Text style={styles.authButtonText}>Log In</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+               style={[
+                  styles.authButton,
+                  styles.authButtonSecondary,
+                  { borderColor: tintColor },
+               ]}
+               onPress={() => router.push('/(auth)/register')}
+            >
+               <Text style={[styles.authButtonText, { color: tintColor }]}>
+                  Sign Up
+               </Text>
+            </TouchableOpacity>
+         </ThemedView>
+      );
+   }
+
    return (
       <ParallaxScrollView
          headerBackgroundColor={{ light: '#111', dark: '#000' }}
@@ -62,19 +88,38 @@ export default function ProfileScreen() {
                <View style={styles.headerOverlay} />
                <View style={styles.headerTopBar}>
                   <ThemedText type='title'>My Profile</ThemedText>
-                  <TouchableOpacity
-                     style={[
-                        styles.editButton,
-                        { backgroundColor: tintColor + '25' },
-                     ]}
-                     onPress={handleEditProfile}
-                  >
-                     <Text
-                        style={[styles.editButtonText, { color: tintColor }]}
+                  <View style={styles.headerActions}>
+                     <TouchableOpacity
+                        style={[
+                           styles.editButton,
+                           { backgroundColor: tintColor + '25' },
+                        ]}
+                        onPress={handleEditProfile}
                      >
-                        Edit Profile
-                     </Text>
-                  </TouchableOpacity>
+                        <Text
+                           style={[styles.editButtonText, { color: tintColor }]}
+                        >
+                           Edit Profile
+                        </Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity
+                        style={[
+                           styles.logoutHeaderButton,
+                           isLoggingOut && styles.logoutButtonDisabled,
+                        ]}
+                        onPress={handleLogout}
+                        disabled={isLoggingOut}
+                        accessibilityLabel='Log out'
+                     >
+                        {isLoggingOut ? (
+                           <ActivityIndicator color='#fff' size='small' />
+                        ) : (
+                           <Text style={styles.logoutHeaderButtonText}>
+                              Logout
+                           </Text>
+                        )}
+                     </TouchableOpacity>
+                  </View>
                </View>
             </View>
          }
@@ -373,6 +418,29 @@ const COVER_IMG =
    'https://images.unsplash.com/photo-1541701494587-cb58502866ab?q=80&w=2070&auto=format&fit=crop';
 
 const styles = StyleSheet.create({
+   // Auth-only view (when not logged in)
+   authContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+      gap: 12,
+   },
+   authButton: {
+      width: '25%',
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+   },
+   authButtonSecondary: {
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+   },
+   authButtonText: {
+      color: '#fff',
+      fontWeight: '700',
+      fontSize: 16,
+   },
    // Header
    headerImageContainer: {
       flex: 1,
@@ -401,6 +469,22 @@ const styles = StyleSheet.create({
       borderRadius: 20,
    },
    editButtonText: {
+      fontWeight: '600',
+      fontSize: 14,
+   },
+   headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+   },
+   logoutHeaderButton: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
+      backgroundColor: '#ef4444',
+   },
+   logoutHeaderButtonText: {
+      color: '#fff',
       fontWeight: '600',
       fontSize: 14,
    },
