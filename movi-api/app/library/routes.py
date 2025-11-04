@@ -75,7 +75,7 @@ def searchBook():
     num_results = request.args.get("n") or 20
     return search_book_by_title(title, num_results)
 
-@library_bp.get("/getbook/<title>")
+@library_bp.get("/book/<title>")
 def searchBookByTitle(title: str):
     num_results = request.args.get("n") or 20
     return search_book_by_title(title, num_results)
@@ -119,7 +119,7 @@ def get_tbr_by_user(id: str):
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
 
-@library_bp.post("/addreadbook/user/<user_id>/book/<book_id>")
+@library_bp.post("/user/read/<user_id>/book/<book_id>")
 def add_read_book(user_id: str, book_id: str):
     db = get_db()
     try: 
@@ -153,7 +153,7 @@ def add_read_book(user_id: str, book_id: str):
         return jsonify({"error": "server", "detail": str(e)}), 500
 
 
-@library_bp.post("addtoberead/user/<user_id>/book/<book_id>")
+@library_bp.post("/user/toberead/<user_id>/book/<book_id>")
 def add_tbr_book(user_id: str, book_id: str):
     db = get_db()
     try: 
@@ -178,7 +178,7 @@ def add_tbr_book(user_id: str, book_id: str):
             return jsonify({"error": "duplicate_entry", "detail": "The requested entry to add is already registered as to be read"}), 409
         
         if "toBeReadBooks" not in user:
-            db.user.update_one({"_id": oid}, {"$set": {"toBeReadBooks": book_id}})
+            db.user.update_one({"_id": oid}, {"$set": {"toBeReadBooks": [book_id]}})
         else:
             db.user.update_one({"_id": oid}, {"$set": {"toBeReadBooks": book_id}})
 
