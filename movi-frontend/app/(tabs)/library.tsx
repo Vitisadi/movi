@@ -64,8 +64,8 @@ export default function LibraryScreen() {
       activeTab === 'Watched'
          ? { movies: watchedMovies, books: watchedBooks }
          : { movies: laterMovies, books: laterBooks };
-   const { user } = useAuth();
-   const USER_ID = user?.id ?? '68c9b2d573fbd318f36537ce';
+   const { user, isLoading, isAuthenticated } = useAuth();
+   const USER_ID = user?.id;
    const totalCount =
       (picked.movies?.length || 0) + (picked.books?.length || 0);
    const isEmpty = totalCount === 0;
@@ -179,6 +179,14 @@ export default function LibraryScreen() {
       try {
          if (initial) setLoading(true);
          setRefreshing(true);
+         if (!USER_ID) {
+            // Not authenticated or user not loaded yet; clear lists
+            setWatchedMovies([]);
+            setLaterMovies([]);
+            setWatchedBooks([]);
+            setLaterBooks([]);
+            return;
+         }
          await Promise.all([loadWatched(), loadLater(), loadReadBooks(), loadTbrBooks()]);
       } catch (err: any) {
          Alert.alert('Load failed', String(err?.message || err));
@@ -188,16 +196,24 @@ export default function LibraryScreen() {
       }
    };
 
+   // Initial load when auth state ready and when user changes
    useEffect(() => {
-      // initial load with loader
-      onRefresh(true);
+      if (!isLoading && USER_ID) {
+         onRefresh(true);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [isLoading, USER_ID]);
+
+   // Refresh when other screens report changes (only if authenticated)
+   useEffect(() => {
       const off = onLibraryChanged(() => {
-         // refresh when other screens report changes
-         onRefresh();
+         if (!isLoading && USER_ID) {
+            onRefresh();
+         }
       });
       return off;
       // eslint-disable-next-line react-hooks/exhaustive-deps
-   }, []);
+   }, [isLoading, USER_ID]);
 
    // Also refresh whenever this tab gains focus
    // Commented for now TBD if we want this or not, might not be necessary
@@ -238,6 +254,8 @@ export default function LibraryScreen() {
                <ActivityIndicator size="small" color="#0ea5e9" />
                <Text style={styles.loadingText}>Loading…</Text>
             </View>
+         ) : !USER_ID ? (
+            <EmptyState activeTab={activeTab} />
          ) : isEmpty ? (
             <EmptyState activeTab={activeTab} />
          ) : (

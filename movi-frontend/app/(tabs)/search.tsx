@@ -134,9 +134,8 @@ export default function SearchScreen() {
   const [reviewText, setReviewText] = useState('');
   const [apiResults, setApiResults] = useState<SearchItem[]>([]);
 
-  const { user } = useAuth();
-  console.log(user)
-  const USER_ID = user?.id ?? '68c9b2d573fbd318f36537ce';
+  const { user, isAuthenticated } = useAuth();
+  const USER_ID = user?.id;
 
   // Filter by activeQuery after the user presses Search
   const results = useMemo(() => {
@@ -159,6 +158,10 @@ export default function SearchScreen() {
     item: SearchItem
   ) => {
     try {
+      if (!USER_ID) {
+        notify('Login required', 'Please sign in to manage your library.');
+        return;
+      }
       if (item.kind !== 'movie') {
         notify('Not supported', 'Only movies can be added.');
         return;
@@ -197,6 +200,10 @@ export default function SearchScreen() {
     item: SearchItem
   ) => {
     try {
+      if (!USER_ID) {
+        notify('Login required', 'Please sign in to manage your library.');
+        return;
+      }
       if (item.kind !== 'book') {
         notify('Not supported', 'Only books can be added.');
         return;
@@ -323,6 +330,10 @@ export default function SearchScreen() {
       return;
     }
     if (!reviewItem) return;
+    if (!USER_ID) {
+      notify('Login required', 'Please sign in to leave a review.');
+      return;
+    }
     if (reviewItem.kind !== 'movie') {
       notify('Not supported', 'Only movies can be reviewed.');
       return;
@@ -337,7 +348,7 @@ export default function SearchScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: USER_ID, // TODO: replace with logged-in user id
+          userId: USER_ID, // logged-in user id
           movieId: movieIdNum,
           rating: ratingNum,
           title: reviewTitle || undefined,
