@@ -84,7 +84,7 @@ export default function LibraryScreen() {
          },
       ],
       // Recompute when tab or underlying lists change
-      [activeTab, watchedMovies, laterMovies]
+      [activeTab, watchedMovies, laterMovies, watchedBooks, laterBooks]
    );
 
    function mapApiMovie(it: any): Movie {
