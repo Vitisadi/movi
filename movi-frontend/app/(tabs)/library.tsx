@@ -57,11 +57,13 @@ export default function LibraryScreen() {
    const [loading, setLoading] = useState(true);
    const [watchedMovies, setWatchedMovies] = useState<Movie[]>([]);
    const [laterMovies, setLaterMovies] = useState<Movie[]>([]);
+   const [watchedBooks, setWatchedBooks] = useState<Book[]>([]);
+   const [laterBooks, setLaterBooks] = useState<Book[]>([]);
 
    const picked =
       activeTab === 'Watched'
-         ? { movies: watchedMovies, books: [] as Book[] }
-         : { movies: laterMovies, books: [] as Book[] };
+         ? { movies: watchedMovies, books: watchedBooks }
+         : { movies: laterMovies, books: laterBooks };
    const { user } = useAuth();
    const USER_ID = user?.id ?? '68c9b2d573fbd318f36537ce';
    const totalCount =
@@ -96,6 +98,47 @@ export default function LibraryScreen() {
       };
    }
 
+   function mapApiBook(work: any): Book {
+      const key = String(work?.key ?? ''); // e.g. '/works/OL2665176W'
+      const id = key ? (key.split('/').pop() || key) : String(work?.id ?? '');
+      const title = String(work?.title ?? '');
+
+      // Cover image from first cover id, if present
+      let coverUrl: string | undefined;
+      if (Array.isArray(work?.covers) && work.covers.length > 0 && work.covers[0]) {
+         coverUrl = `https://covers.openlibrary.org/b/id/${work.covers[0]}-M.jpg`;
+      } else if (typeof work?.coverUrl === 'string') {
+         coverUrl = work.coverUrl;
+      }
+
+      // Try to infer author string if backend provided names
+      let author: string | undefined;
+      if (Array.isArray(work?.authors) && work.authors.length > 0) {
+         if (typeof work.authors[0] === 'string') {
+            author = (work.authors as string[]).join(', ');
+         } else if (work.authors[0]?.name) {
+            author = work.authors.map((a: any) => a?.name).filter(Boolean).join(', ');
+         }
+      } else if (Array.isArray(work?.author_name)) {
+         author = work.author_name.filter(Boolean).join(', ');
+      }
+
+      // Attempt to parse a year if present
+      let year: number | undefined;
+      const candidate = work?.first_publish_year ?? work?.first_publish_date ?? work?.created;
+      if (typeof candidate === 'number') {
+         year = candidate;
+      } else if (typeof candidate === 'string') {
+         const m = candidate.match(/\d{4}/);
+         if (m) year = Number(m[0]);
+      } else if (candidate && typeof candidate === 'object' && typeof candidate?.value === 'string') {
+         const m = String(candidate.value).match(/\d{4}/);
+         if (m) year = Number(m[0]);
+      }
+
+      return { id, title, author, year, coverUrl };
+   }
+
    const loadWatched = async () => {
       const url = `${API_BASE_URL}/movies/user/${USER_ID}`;
       const res = await fetch(url);
@@ -114,11 +157,29 @@ export default function LibraryScreen() {
       setLaterMovies(items.map(mapApiMovie));
    };
 
+   const loadReadBooks = async () => {
+      const url = `${API_BASE_URL}/read/user/${USER_ID}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`ReadBooks HTTP ${res.status}`);
+      const data = await res.json();
+      const items = Array.isArray(data?.readBooks) ? data.readBooks : [];
+      setWatchedBooks(items.map(mapApiBook));
+   };
+
+   const loadTbrBooks = async () => {
+      const url = `${API_BASE_URL}/toberead/user/${USER_ID}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`ToBeRead HTTP ${res.status}`);
+      const data = await res.json();
+      const items = Array.isArray(data?.toBeReadBooks) ? data.toBeReadBooks : [];
+      setLaterBooks(items.map(mapApiBook));
+   };
+
    const onRefresh = async (initial = false) => {
       try {
          if (initial) setLoading(true);
          setRefreshing(true);
-         await Promise.all([loadWatched(), loadLater()]);
+         await Promise.all([loadWatched(), loadLater(), loadReadBooks(), loadTbrBooks()]);
       } catch (err: any) {
          Alert.alert('Load failed', String(err?.message || err));
       } finally {
