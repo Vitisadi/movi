@@ -7,7 +7,6 @@ import {
    Image,
    Pressable,
    RefreshControl,
-   Alert,
    ActivityIndicator,
 } from 'react-native';
 
@@ -16,6 +15,7 @@ import libraryData from '../../assets/json/library.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { onLibraryChanged } from '@/lib/library-events';
 import { useFocusEffect } from '@react-navigation/native';
+import { toast } from '@/lib/toast';
 
 /* ---------- Types ---------- */
 type Movie = {
@@ -120,7 +120,7 @@ export default function LibraryScreen() {
          setRefreshing(true);
          await Promise.all([loadWatched(), loadLater()]);
       } catch (err: any) {
-         Alert.alert('Load failed', String(err?.message || err));
+         toast.error('Load failed', String(err?.message || err));
       } finally {
          setRefreshing(false);
          if (initial) setLoading(false);
@@ -220,7 +220,7 @@ function ItemCard({
 
    const handleRemove = () => {
       console.log('Remove pressed for:', title);
-      Alert.alert('Remove', `Pretend removing: ${title}`);
+      toast.info('Remove', `Pretend removing: ${title}`);
    };
 
    return (

@@ -4,7 +4,6 @@ import {
    View,
    TextInput,
    TouchableOpacity,
-   Alert,
    KeyboardAvoidingView,
    Platform,
    ScrollView,
@@ -14,6 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/lib/toast';
 
 export default function RegisterScreen() {
    const [name, setName] = useState('');
@@ -38,37 +38,37 @@ export default function RegisterScreen() {
 
    const validateForm = () => {
       if (!name.trim()) {
-         Alert.alert('Error', 'Please enter your full name');
+         toast.error('Error', 'Please enter your full name');
          return false;
       }
 
       if (name.trim().length < 2) {
-         Alert.alert('Error', 'Name must be at least 2 characters long');
+         toast.error('Error', 'Name must be at least 2 characters long');
          return false;
       }
 
       if (!email.trim()) {
-         Alert.alert('Error', 'Please enter your email address');
+         toast.error('Error', 'Please enter your email address');
          return false;
       }
 
       if (!validateEmail(email)) {
-         Alert.alert('Error', 'Please enter a valid email address');
+         toast.error('Error', 'Please enter a valid email address');
          return false;
       }
 
       if (!password) {
-         Alert.alert('Error', 'Please enter a password');
+         toast.error('Error', 'Please enter a password');
          return false;
       }
 
       if (password.length < 6) {
-         Alert.alert('Error', 'Password must be at least 6 characters long');
+         toast.error('Error', 'Password must be at least 6 characters long');
          return false;
       }
 
       if (password !== confirmPassword) {
-         Alert.alert('Error', 'Passwords do not match');
+         toast.error('Error', 'Passwords do not match');
          return false;
       }
 
@@ -83,20 +83,13 @@ export default function RegisterScreen() {
       try {
          await registerUser(name, email, password);
 
-         Alert.alert(
+         toast.success(
             'Success',
-            'Account created successfully! Please sign in with your new account.',
-            [
-               {
-                  text: 'OK',
-                  onPress: () => {
-                     router.replace('/(auth)/login');
-                  },
-               },
-            ]
+            'Account created successfully! Please sign in with your new account.'
          );
+         router.replace('/(auth)/login');
       } catch (error) {
-         Alert.alert(
+         toast.error(
             'Error',
             error instanceof Error
                ? error.message

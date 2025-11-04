@@ -5,7 +5,6 @@ import {
    Text,
    Image,
    Pressable,
-   Alert,
    TouchableOpacity,
    ActivityIndicator,
 } from 'react-native';
@@ -17,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { router } from 'expo-router';
+import { toast } from '@/lib/toast';
 
 export default function ProfileScreen() {
    const { user, logout } = useAuth();
@@ -41,13 +41,13 @@ export default function ProfileScreen() {
          setIsLoggingOut(true);
          await logout();
       } catch (e) {
-         Alert.alert('Error', 'Failed to logout');
+         toast.error('Error', 'Failed to logout');
          setIsLoggingOut(false);
       }
    };
 
    const handleEditProfile = () => {
-      Alert.alert('Coming Soon', 'Profile editing will be available soon!');
+      toast.info('Coming Soon', 'Profile editing will be available soon!');
    };
 
    if (!user) {

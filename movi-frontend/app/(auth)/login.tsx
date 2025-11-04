@@ -4,7 +4,6 @@ import {
    View,
    TextInput,
    TouchableOpacity,
-   Alert,
    KeyboardAvoidingView,
    Platform,
    ScrollView,
@@ -14,6 +13,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/lib/toast';
 
 export default function LoginScreen() {
    const [email, setEmail] = useState('');
@@ -31,28 +31,22 @@ export default function LoginScreen() {
 
    const handleLogin = async () => {
       if (!email.trim() || !password.trim()) {
-         Alert.alert('Error', 'Please fill in all fields');
+         toast.error('Error', 'Please fill in all fields');
          return;
       }
 
       if (password.length < 6) {
-         Alert.alert('Error', 'Password must be at least 6 characters long');
+         toast.error('Error', 'Password must be at least 6 characters long');
          return;
       }
 
       try {
          await login(email, password);
 
-         Alert.alert('Success', 'Login successful!', [
-            {
-               text: 'OK',
-               onPress: () => {
-                  router.replace('/(tabs)/home');
-               },
-            },
-         ]);
+         toast.success('Success', 'Login successful!');
+         router.replace('/(tabs)/home');
       } catch (error) {
-         Alert.alert(
+         toast.error(
             'Error',
             error instanceof Error
                ? error.message

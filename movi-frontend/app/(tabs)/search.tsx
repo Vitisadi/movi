@@ -7,16 +7,15 @@ import {
   SectionList,
   Image,
   Pressable,
-  Alert,
   Keyboard,
   Modal,
-  Platform,
 } from 'react-native';
 
 import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { emitLibraryChanged } from '@/lib/library-events';
 import { useAuth } from '@/contexts/AuthContext';
+import { toast, ToastType } from '@/lib/toast';
 
 type Kind = 'movie' | 'book';
 
@@ -39,18 +38,9 @@ const API_BASE_URL =
   (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) ||
   'http://127.0.0.1:3000';
 
-// Cross-platform notification helper (web uses window.alert; native uses Alert)
-function notify(title: string, message?: string) {
-  if (Platform.OS === 'web') {
-    const text = message ? `${title}\n${message}` : title;
-    if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-      window.alert(text);
-    } else {
-      console.log('NOTIFY:', text);
-    }
-  } else {
-    Alert.alert(title, message);
-  }
+// Cross-platform notification helper
+function notify(title: string, message?: string, type: ToastType = 'info') {
+  toast[type](title, message);
 }
 
 const SAMPLE_ITEMS: SearchItem[] = [
@@ -160,12 +150,12 @@ export default function SearchScreen() {
   ) => {
     try {
       if (item.kind !== 'movie') {
-        notify('Not supported', 'Only movies can be added.');
+        notify('Not supported', 'Only movies can be added.', 'error');
         return;
       }
       const movieId = String(item.id || '').trim();
       if (!movieId) {
-        notify('Missing movie', 'Could not determine movie id.');
+        notify('Missing movie', 'Could not determine movie id.', 'error');
         return;
       }
 
@@ -178,17 +168,18 @@ export default function SearchScreen() {
       const body = isJson ? await res.json() : undefined;
       if (!res.ok) {
         const msg = body?.error || `HTTP ${res.status}`;
-        notify('Action failed', String(msg));
+        notify('Action failed', String(msg), 'error');
         return;
       }
       notify(
         action === 'watched' ? 'Added to Watched' : 'Added to Watch Later',
-        `${item.title} (${item.kind})`
+        `${item.title} (${item.kind})`,
+        'success'
       );
       // Notify library to refresh
       emitLibraryChanged();
     } catch (err: any) {
-      notify('Network error', String(err?.message || err));
+      notify('Network error', String(err?.message || err), 'error');
     }
   };
 
@@ -217,7 +208,7 @@ export default function SearchScreen() {
       }));
       setApiResults(mapped);
     } catch (err: any) {
-      notify('Search failed', String(err?.message || err));
+      notify('Search failed', String(err?.message || err), 'error');
       setApiResults([]);
     } finally {
       setSubmitting(false);
@@ -237,17 +228,17 @@ export default function SearchScreen() {
   const submitReview = async () => {
     const ratingNum = Number(reviewRating);
     if (!ratingNum || ratingNum < 1 || ratingNum > 10) {
-      notify('Invalid rating', 'Please enter a rating from 1 to 10.');
+      notify('Invalid rating', 'Please enter a rating from 1 to 10.', 'error');
       return;
     }
     if (!reviewItem) return;
     if (reviewItem.kind !== 'movie') {
-      notify('Not supported', 'Only movies can be reviewed.');
+      notify('Not supported', 'Only movies can be reviewed.', 'error');
       return;
     }
     const movieIdNum = Number(reviewItem.id);
     if (!Number.isFinite(movieIdNum)) {
-      notify('Missing movie', 'Could not determine movie id.');
+      notify('Missing movie', 'Could not determine movie id.', 'error');
       return;
     }
     try {
@@ -266,13 +257,13 @@ export default function SearchScreen() {
       const body = isJson ? await res.json() : undefined;
       if (!res.ok) {
         const detail = body?.detail || body?.error || `HTTP ${res.status}`;
-        notify('Review failed', String(detail));
+        notify('Review failed', String(detail), 'error');
         return;
       }
-      notify('Review submitted', `${reviewItem.title} (Rating: ${ratingNum})`);
+      notify('Review submitted', `${reviewItem.title} (Rating: ${ratingNum})`, 'success');
       setReviewVisible(false);
     } catch (err: any) {
-      notify('Network error', String(err?.message || err));
+      notify('Network error', String(err?.message || err), 'error');
     }
   };
 
