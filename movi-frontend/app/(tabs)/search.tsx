@@ -154,7 +154,7 @@ export default function SearchScreen() {
     [movies, books]
   );
 
-  const sendToBackend = async (
+  const sendMovieToBackend = async (
     action: 'watched' | 'later',
     item: SearchItem
   ) => {
@@ -192,8 +192,47 @@ export default function SearchScreen() {
     }
   };
 
-  const handleAddWatched = (item: SearchItem) => sendToBackend('watched', item);
-  const handleAddLater = (item: SearchItem) => sendToBackend('later', item);
+  const sendBookToBackend = async (
+    action: 'watched' | 'later',
+    item: SearchItem
+  ) => {
+    try {
+      if (item.kind !== 'book') {
+        notify('Not supported', 'Only books can be added.');
+        return;
+      }
+      const bookId = String(item.id || '').trim();
+      if (!bookId) {
+        notify('Missing book', 'Could not determine book id.');
+        return;
+      }
+
+      const path =
+        action === 'watched'
+          ? `/read/user/${USER_ID}/book/${encodeURIComponent(bookId)}`
+          : `/toberead/user/${USER_ID}/book/${encodeURIComponent(bookId)}`;
+      const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST' });
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const body = isJson ? await res.json() : undefined;
+      if (!res.ok) {
+        const msg = body?.error || `HTTP ${res.status}`;
+        notify('Action failed', String(msg));
+        return;
+      }
+      notify(
+        action === 'watched' ? 'Added to Read' : 'Added to To Read',
+        `${item.title} (${item.kind})`
+      );
+      emitLibraryChanged();
+    } catch (err: any) {
+      notify('Network error', String(err?.message || err));
+    }
+  };
+
+  const handleAddWatched = (item: SearchItem) =>
+    item.kind === 'movie' ? sendMovieToBackend('watched', item) : sendBookToBackend('watched', item);
+  const handleAddLater = (item: SearchItem) =>
+    item.kind === 'movie' ? sendMovieToBackend('later', item) : sendBookToBackend('later', item);
 
   const onSubmitSearch = async () => {
     const q = query.trim();
@@ -203,19 +242,62 @@ export default function SearchScreen() {
     setActiveQuery(q);
     setHasSearched(true);
     try {
-      const url = `${API_BASE_URL}/getmovies/${encodeURIComponent(q)}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const items = Array.isArray(data?.items) ? data.items : [];
-      const mapped: SearchItem[] = items.map((it: any) => ({
-        id: String(it.id ?? ''),
-        kind: 'movie',
-        title: String(it.title ?? ''),
-        year: it.year ? Number(it.year) : undefined,
-        posterUrl: it.posterUrl ?? undefined,
-      }));
-      setApiResults(mapped);
+      const movieUrl = `${API_BASE_URL}/getmovies/${encodeURIComponent(q)}`;
+      const bookUrl = `${API_BASE_URL}/book/${encodeURIComponent(q)}`;
+
+      const [movieRes, bookRes] = await Promise.allSettled([
+        fetch(movieUrl),
+        fetch(bookUrl),
+      ]);
+
+      let mappedMovies: SearchItem[] = [];
+      if (movieRes.status === 'fulfilled') {
+        const res = movieRes.value;
+        if (!res.ok) throw new Error(`Movies HTTP ${res.status}`);
+        const data = await res.json();
+        const items = Array.isArray(data?.items) ? data.items : [];
+        mappedMovies = items.map((it: any) => ({
+          id: String(it.id ?? ''),
+          kind: 'movie',
+          title: String(it.title ?? ''),
+          year: it.year ? Number(it.year) : undefined,
+          posterUrl: it.posterUrl ?? undefined,
+        }));
+      }
+
+      let mappedBooks: SearchItem[] = [];
+      if (bookRes.status === 'fulfilled') {
+        const res = bookRes.value;
+        if (!res.ok) throw new Error(`Books HTTP ${res.status}`);
+        const data = await res.json();
+        const arr = Array.isArray(data) ? data : [];
+        mappedBooks = arr
+          .map((entry: any) => {
+            const raw = Array.isArray(entry) ? entry[0] : null;
+            const cover = Array.isArray(entry) ? entry[1] : undefined;
+            if (!raw) return null;
+            const worksKey: string = String(raw.key || ''); // e.g. '/works/OL2665176W'
+            const id = worksKey.split('/').pop() || worksKey;
+            const authorArr = Array.isArray(raw.author_name)
+              ? raw.author_name
+              : [];
+            const author = authorArr.filter(Boolean).join(', ');
+            const year = raw.first_publish_year
+              ? Number(raw.first_publish_year)
+              : undefined;
+            return {
+              id,
+              kind: 'book' as const,
+              title: String(raw.title || ''),
+              author: author || undefined,
+              year: Number.isFinite(year as any) ? (year as number) : undefined,
+              coverUrl: cover || undefined,
+            } as SearchItem;
+          })
+          .filter(Boolean) as SearchItem[];
+      }
+
+      setApiResults([...mappedMovies, ...mappedBooks]);
     } catch (err: any) {
       notify('Search failed', String(err?.message || err));
       setApiResults([]);
@@ -425,15 +507,28 @@ function SearchResultCard({
         )}
 
         <View style={styles.actionsRow}>
-          <Pressable style={[styles.actionBtn, styles.actionPrimary]} onPress={() => onAddWatched(item)}>
-            <Text style={styles.actionPrimaryText} numberOfLines={1}>Watched</Text>
-          </Pressable>
-          <Pressable style={[styles.actionBtn, styles.actionSecondary, styles.actionBtnMultiline]} onPress={() => onAddLater(item)}>
-            <Text style={[styles.actionSecondaryText, styles.actionTextMultiline]} numberOfLines={2}>{'Watch\nLater'}</Text>
-          </Pressable>
-          <Pressable style={[styles.actionBtn, styles.actionTertiary, styles.actionBtnMultiline]} onPress={() => onLeaveReview(item)}>
-            <Text style={[styles.actionTertiaryText, styles.actionTextMultiline]} numberOfLines={2}>{'Leave\nReview'}</Text>
-          </Pressable>
+          {isMovie ? (
+            <>
+              <Pressable style={[styles.actionBtn, styles.actionPrimary]} onPress={() => onAddWatched(item)}>
+                <Text style={styles.actionPrimaryText} numberOfLines={1}>Watched</Text>
+              </Pressable>
+              <Pressable style={[styles.actionBtn, styles.actionSecondary, styles.actionBtnMultiline]} onPress={() => onAddLater(item)}>
+                <Text style={[styles.actionSecondaryText, styles.actionTextMultiline]} numberOfLines={2}>{'Watch\nLater'}</Text>
+              </Pressable>
+              <Pressable style={[styles.actionBtn, styles.actionTertiary, styles.actionBtnMultiline]} onPress={() => onLeaveReview(item)}>
+                <Text style={[styles.actionTertiaryText, styles.actionTextMultiline]} numberOfLines={2}>{'Leave\nReview'}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Pressable style={[styles.actionBtn, styles.actionPrimary]} onPress={() => onAddWatched(item)}>
+                <Text style={styles.actionPrimaryText} numberOfLines={1}>Read</Text>
+              </Pressable>
+              <Pressable style={[styles.actionBtn, styles.actionSecondary, styles.actionBtnMultiline]} onPress={() => onAddLater(item)}>
+                <Text style={[styles.actionSecondaryText, styles.actionTextMultiline]} numberOfLines={2}>{'To\nRead'}</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </View>
     </View>
