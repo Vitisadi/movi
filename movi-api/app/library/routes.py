@@ -69,7 +69,7 @@ def get_book_by_id(id: str):
         return jsonify({"error": "server", "detail": str(e)}), 500
 
 
-@library_bp.get("/getbook")
+@library_bp.get("/book")
 def searchBook():
     title   = (request.args.get("name") or "").strip()
     num_results = request.args.get("n") or 20
@@ -80,7 +80,7 @@ def searchBookByTitle(title: str):
     num_results = request.args.get("n") or 20
     return search_book_by_title(title, num_results)
 
-@library_bp.get("/books/user/<id>")
+@library_bp.get("/read/user/<id>")
 def get_books_by_user(id: str):
     db = get_db()
     try: 
@@ -100,7 +100,7 @@ def get_books_by_user(id: str):
         return jsonify({"error": "server", "detail": str(e)}), 500
         
 
-@library_bp.get("/tobereadbooks/user/<id>")
+@library_bp.get("/toberead/user/<id>")
 def get_tbr_by_user(id: str):
     db = get_db()
     try: 
@@ -119,7 +119,7 @@ def get_tbr_by_user(id: str):
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
 
-@library_bp.post("/user/read/<user_id>/book/<book_id>")
+@library_bp.post("/read/user/<user_id>/book/<book_id>")
 def add_read_book(user_id: str, book_id: str):
     db = get_db()
     try: 
@@ -144,16 +144,16 @@ def add_read_book(user_id: str, book_id: str):
             return jsonify({"error": "duplicate_entry", "detail": "The requested entry to add is already registered as read"}), 409
         
         if "readBooks" not in user:
-            db.user.update_one({"_id": oid}, {"$set": {"readBooks": book_id}})
+            db.users.update_one({"_id": oid}, {"$set": {"readBooks": [book_id]}})
         else:
-            db.user.update_one({"_id": oid}, {"$set": {"readBooks": book_id}})
+            db.users.update_one({"_id": oid}, {"$push": {"readBooks": book_id}})
 
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
 
 
-@library_bp.post("/user/toberead/<user_id>/book/<book_id>")
+@library_bp.post("/toberead/user/<user_id>/book/<book_id>")
 def add_tbr_book(user_id: str, book_id: str):
     db = get_db()
     try: 
@@ -178,10 +178,77 @@ def add_tbr_book(user_id: str, book_id: str):
             return jsonify({"error": "duplicate_entry", "detail": "The requested entry to add is already registered as to be read"}), 409
         
         if "toBeReadBooks" not in user:
-            db.user.update_one({"_id": oid}, {"$set": {"toBeReadBooks": [book_id]}})
+            db.users.update_one({"_id": oid}, {"$set": {"toBeReadBooks": [book_id]}})
         else:
-            db.user.update_one({"_id": oid}, {"$set": {"toBeReadBooks": book_id}})
+            db.users.update_one({"_id": oid}, {"$push": {"toBeReadBooks": book_id}})
 
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
+    except Exception as e:
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+@library_bp.delete("/read/user/<user_id>/book/<book_id>")
+def remove_read_book(user_id: str, book_id: str):
+    db = get_db()
+    try: 
+        uid = str(user_id)
+        oid = ObjectId(uid)
+
+        b = get_book_by_id(book_id)
+        if b is None:
+            return jsonify({"error": "book_not_found", "detail": "The requested book was not found"}), 404 
+        
+        user = db.users.find_one({"_id": oid})
+        if user is None: 
+            return jsonify({"error": "user_not_found", "detail": "The requested user was not found"}), 404 
+        
+        before_count = 0
+        try:
+            before_count = len(user.get("readBooks"))
+        except Exception as e:
+            return jsonify({"error": "book_not_found", "detail": "The requested user has no readBooks attribute"}), 404 
+
+        db.users.update_one({"_id": oid},  {"$pull":  {"readBooks": book_id}})
+
+        after = db.users.find_one({"_id": oid})
+        after_count = len(after.get("readBooks"))
+        return jsonify({"ok": True,
+                        "userId": uid,
+                        "bookId": book_id,
+                        "newCount": after_count, 
+                        "modified": (before_count != after_count)})
+    except Exception as e:
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+@library_bp.delete("/toberead/user/<user_id>/book/<book_id>")
+def remove_tbr_book(user_id: str, book_id: str):
+    db = get_db()
+    try: 
+        uid = str(user_id)
+        oid = ObjectId(uid)
+
+        b = get_book_by_id(book_id)
+        if b is None:
+            return jsonify({"error": "book_not_found", "detail": "The requested book was not found"}), 404 
+        
+        user = db.users.find_one({"_id": oid})
+        
+        if user is None: 
+            return jsonify({"error": "user_not_found", "detail": "The requested user was not found"}), 404 
+        
+        before_count = 0
+        try:
+            before_count = len(user.get("toBeReadBooks"))
+        except Exception as e:
+            return jsonify({"error": "book_not_found", "detail": "The requested user has no toBeReadBooks attribute"}), 404 
+
+        db.users.update_one({"_id": oid},  {"$pull":  {"toBeReadBooks": book_id}})
+
+        after = db.users.find_one({"_id": oid})
+        after_count = len(after.get("toBeReadBooks"))
+        return jsonify({"ok": True,
+                        "userId": uid,
+                        "bookId": book_id,
+                        "newCount": after_count, 
+                        "modified": (before_count != after_count)})
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
