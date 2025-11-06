@@ -252,3 +252,80 @@ def remove_tbr_book(user_id: str, book_id: str):
                         "modified": (before_count != after_count)})
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
+    
+@library_bp.post("/createbookreview")
+def add_review_book():
+    db = get_db()
+    try: 
+        payload = request.get_json(silent=True) or {}
+        user_id = (payload.get("userId") or "").strip()
+        book_id = payload.get("bookId")
+        rating = payload.get("rating")
+        title = payload.get("title")
+        body = payload.get("body")
+
+        uid = str(user_id)
+        oid = ObjectId(uid)
+
+        b = get_book_by_id(book_id)
+        if b is None:
+            return jsonify({"error": "book_not_found", "detail": "The requested book was not found"}), 404 
+        
+        try:
+            r = int(rating)
+        except Exception:
+            return jsonify({"error": "invalid_rating"}), 400
+        if r < 1 or r > 10:
+            return jsonify({"error": "rating_out_of_range", "min": 1, "max": 10}), 400
+        
+        if not isinstance(body, str) or not body.strip():
+            return jsonify({"error": "missing_body"}), 400
+        
+        user = db.users.find_one({"_id": oid})
+        
+        if user is None: 
+            return jsonify({"error": "user_not_found", "detail": "The requested user was not found"}), 404
+        
+        doc = {"userId": oid, 
+               "bookId": book_id,
+               "rating": r,
+               "title": title if (title is None or isinstance(title, str)) else str(title), 
+               "body": body.strip(),
+               "createdAt": datetime.datetime.now(datetime.UTC),
+               "updatedAt": datetime.datetime.now(datetime.UTC)}
+
+        res = db.bookReviews.insert_one(doc)
+        review_id = res.inserted_id
+
+        try:
+            db.users.update_one(
+                {"_id": oid},
+                {"$addToSet": {"movieReviews": review_id}}
+            )
+        except Exception as e:
+            # if this fails (e.g., validator missing movieReviews), surface a helpful error
+            return jsonify({
+                "error": "user_update_failed",
+                "detail": str(e),
+                "reviewId": str(review_id)
+            }), 500
+        
+        try:
+            db.users.update_one({"_id": oid}, {"$addToSet": {"readBooks": book_id}})
+            db.users.update_one({"_id": oid}, {"$pull": {"toBeReadBooks": book_id}})
+        except Exception as e:
+            return jsonify({
+                "error": "user_update_failed",
+                "detail": str(e),
+                "reviewId": str(review_id)
+            }), 500
+        
+        return jsonify({
+            "ok": True,
+            "id": str(review_id),
+            "bookId": book_id,
+            "userId": str(oid),
+            "rating": r
+        }), 201
+    except Exception as e:
+        return jsonify({"error": "server", "detail": str(e)})
