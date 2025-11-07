@@ -334,26 +334,46 @@ export default function SearchScreen() {
       notify('Login required', 'Please sign in to leave a review.');
       return;
     }
-    if (reviewItem.kind !== 'movie') {
-      notify('Not supported', 'Only movies can be reviewed.');
-      return;
-    }
-    const movieIdNum = Number(reviewItem.id);
-    if (!Number.isFinite(movieIdNum)) {
-      notify('Missing movie', 'Could not determine movie id.');
-      return;
-    }
     try {
-      const res = await fetch(`${API_BASE_URL}/createmoviereview`, {
+      const isMovie = reviewItem.kind === 'movie';
+      const url = isMovie
+        ? `${API_BASE_URL}/createmoviereview`
+        : `${API_BASE_URL}/createbookreview`;
+
+      // Prepare payload based on kind
+      const payload = isMovie
+        ? {
+            userId: USER_ID,
+            movieId: Number(reviewItem.id),
+            rating: ratingNum,
+            title: reviewTitle || undefined,
+            body: reviewText || '',
+          }
+        : {
+            userId: USER_ID,
+            bookId: String(reviewItem.id),
+            rating: ratingNum,
+            title: reviewTitle || undefined,
+            body: reviewText || '',
+          };
+
+      // Validate id per kind before sending
+      if (isMovie) {
+        if (!Number.isFinite((payload as any).movieId)) {
+          notify('Missing movie', 'Could not determine movie id.');
+          return;
+        }
+      } else {
+        if (!String((payload as any).bookId || '').trim()) {
+          notify('Missing book', 'Could not determine book id.');
+          return;
+        }
+      }
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: USER_ID, // logged-in user id
-          movieId: movieIdNum,
-          rating: ratingNum,
-          title: reviewTitle || undefined,
-          body: reviewText || '',
-        }),
+        body: JSON.stringify(payload),
       });
       const isJson = (res.headers.get('content-type') || '').includes('application/json');
       const body = isJson ? await res.json() : undefined;
@@ -363,6 +383,7 @@ export default function SearchScreen() {
         return;
       }
       notify('Review submitted', `${reviewItem.title} (Rating: ${ratingNum})`);
+      emitLibraryChanged();
       setReviewVisible(false);
     } catch (err: any) {
       notify('Network error', String(err?.message || err));
@@ -537,6 +558,9 @@ function SearchResultCard({
               </Pressable>
               <Pressable style={[styles.actionBtn, styles.actionSecondary, styles.actionBtnMultiline]} onPress={() => onAddLater(item)}>
                 <Text style={[styles.actionSecondaryText, styles.actionTextMultiline]} numberOfLines={2}>{'To\nRead'}</Text>
+              </Pressable>
+              <Pressable style={[styles.actionBtn, styles.actionTertiary, styles.actionBtnMultiline]} onPress={() => onLeaveReview(item)}>
+                <Text style={[styles.actionTertiaryText, styles.actionTextMultiline]} numberOfLines={2}>{'Leave\nReview'}</Text>
               </Pressable>
             </>
           )}
