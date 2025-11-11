@@ -1,6 +1,7 @@
 # app/users/routes.py
 from flask import request, jsonify, current_app
 from bson import ObjectId
+import re
 
 from . import users_bp, service   # reuse blueprint created in app/users/__init__.py
 from ..db import get_db
@@ -118,6 +119,48 @@ def list_user_activity_with_friends(userId: str):
         current_app.logger.exception("list_user_activity_with_friends failed")
         return jsonify({"error": "server", "detail": str(e)}), 500
 
+@users_bp.get("/<userID>/searchUsers/<userName>")
+def search_users(userID: str, userName: str):
+    try:
+        # sanity-check: searching user exists
+        try:
+            oid = ObjectId((userID or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_user_id"}), 400
+
+        db = get_db()
+        if not db.users.find_one({"_id": oid}, {"_id": 1}):
+            return jsonify({"error": "user_not_found"}), 404
+
+        q = (userName or "").strip()
+        if not q:
+            return jsonify({"ok": True, "query": q, "count": 0, "items": []}), 200
+
+        pat = re.escape(q)
+        
+        cursor = db.users.find(
+            {
+                "$and": [
+                    {"_id": {"$ne": oid}},                         # exclude the searching user
+                    {"username": {"$regex": pat, "$options": "i"}} # partial, case-insensitive
+                ]
+            },
+            {"username": 1}  # _id returned by default
+        ).limit(50)
+
+        items = [{"_id": str(doc["_id"]), "username": doc.get("username")} for doc in cursor]
+
+        return jsonify({
+            "ok": True,
+            "query": q,
+            "count": len(items),
+            "items": items
+        }), 200
+
+    except Exception as e:
+        current_app.logger.exception("search_users failed")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
 @users_bp.get("")
 def list_users_route():
     return jsonify(service.list_users())
@@ -132,4 +175,3 @@ def create_user_route():
     payload = request.get_json(force=True) or {}
     created = service.create_user(payload)
     return jsonify(created), 201
-
