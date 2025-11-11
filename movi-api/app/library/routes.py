@@ -8,54 +8,87 @@ import datetime
 import json
 
 def normalize_book(r: dict):
-    return {"id": r.get("key"),
-            "title": r.get("title"),
-            "authors": get_authors_by_book(r),
-            "description": r.get("description") or "",
-            "coverUrl": f"https://covers.openlibrary.org/b/id/{r.get("covers")[0]}-M.jpg"
+    # Works JSON uses 'covers': [id,...]; Search JSON uses 'cover_i'
+    cover_id = r.get('cover_i')
+    if cover_id is None:
+        covers = r.get('covers') or []
+        cover_id = covers[0] if covers else None
+    cover_url = f"https://covers.openlibrary.org/b/id/{cover_id}-M.jpg" if cover_id else None
+
+    return {
+        "id": r.get("key"),  # e.g. '/works/OL12345W'
+        "title": r.get("title") or "",
+        "authors": get_authors_by_book(r),
+        "description": r.get("description") or "",
+        "coverUrl": cover_url,
     }
 
+
 def get_authors_by_book(r: dict):
+    """
+    Accepts either Works JSON (has 'authors': [{'author': {'key': '/authors/OL..A'}}...])
+    or Search JSON (often has 'author_name': ['...']).
+    """
+    # If search result already has names, prefer those quickly
+    names = r.get("author_name")
+    if isinstance(names, list) and names:
+        return names
+
     ret = []
-    for n in len(r.get('authors')):
-        location = "https://openlibrary.org/" + r.get('authors')[n].get('author').get('key')
+    authors = r.get('authors') or []
+    for entry in authors:
         try:
-            response = requests.get(location)
-            if response.status_code == 200:
-                ret.append(response.json().get("name"))
-        except Exception as e:
-            return jsonify({"error": "server", "detail": str(e)}), 500
-        
+            akey = ((entry or {}).get('author') or {}).get('key')  # '/authors/OL...A'
+            if not akey:
+                continue
+            url = f"https://openlibrary.org{akey}.json"
+            resp = requests.get(url, timeout=10)
+            if resp.ok:
+                name = (resp.json() or {}).get("name")
+                if name:
+                    ret.append(name)
+        except Exception:
+            # Skip failures; don't turn author lookup into a 500
+            continue
     return ret
 
-def search_book_by_title(title: str, num_results: int):
-    title = "+".join(title.lower().split(" "))
-    url = f"https://openlibrary.org/search.json?title={title}"
-    result = None
-    try:
-        ret = []
-        response = requests.get(url=url)
 
-        if response.status_code == 200:
-            posts = response.json()
-            if not posts["docs"]:
-                return "Book not found"
-            results = posts["docs"]
-        else:
-            print('Error:', response.status_code)
-            return None
-        for i in range(num_results):
-            if results is not None:
-                result = results[i]
-                
-            else: 
-                break
-            cover_url = f"https://covers.openlibrary.org/b/id/{result.get("cover_i")}-M.jpg"
-            ret.append((result, cover_url))
+def search_book_by_title(title: str, num_results: int):
+    try:
+        n = max(1, int(num_results))
+    except Exception:
+        n = 20
+
+    q = "+".join((title or "").strip().lower().split())
+    url = f"https://openlibrary.org/search.json?title={q}"
+
+    try:
+        resp = requests.get(url, timeout=15)
+        if not resp.ok:
+            return jsonify({"error": "upstream", "status": resp.status_code}), 502
+
+        data = resp.json() or {}
+        docs = data.get("docs") or []
+        items = []
+
+        for result in docs[:n]:
+            cover_id = result.get('cover_i')
+            cover_url = f"https://covers.openlibrary.org/b/id/{cover_id}-M.jpg" if cover_id else None
+            items.append({
+                "id": result.get("key"),                          # '/works/OL...W'
+                "title": result.get("title") or "",
+                "authors": result.get("author_name") or [],
+                "coverUrl": cover_url,
+            })
+
+        if not items:
+            return jsonify({"query": title, "count": 0, "items": []}), 200
+
+        return jsonify({"query": title, "count": len(items), "items": items}), 200
+
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
 
-    return ret
 
 def get_book_by_id(id: str):
     url = f"https://openlibrary.org/works/{id}.json"
@@ -71,7 +104,7 @@ def get_book_by_id(id: str):
 
 @library_bp.get("/book")
 def searchBook():
-    title   = (request.args.get("name") or "").strip()
+    title = (request.args.get("name") or "").strip()
     num_results = request.args.get("n") or 20
     return search_book_by_title(title, num_results)
 
@@ -79,6 +112,7 @@ def searchBook():
 def searchBookByTitle(title: str):
     num_results = request.args.get("n") or 20
     return search_book_by_title(title, num_results)
+
 
 @library_bp.get("/read/user/<id>")
 def get_books_by_user(id: str):
