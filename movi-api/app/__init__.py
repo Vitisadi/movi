@@ -8,6 +8,7 @@ from .auth import auth_bp
 from .health import health_bp
 from . import db as db_module
 from .tmdb import tmdb_bp  # <-- added
+from .friends import friend_bp
 
 def create_app(config_class: type[Config] = Config) -> Flask:
     app = Flask(__name__)
@@ -25,6 +26,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(tmdb_bp, url_prefix="/")  # <-- added
     app.register_blueprint(library_bp, url_prefix="/")
+    app.register_blueprint(friend_bp, url_prefix="/")
 
 
     # Error handlers
