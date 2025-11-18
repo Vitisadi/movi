@@ -23,6 +23,7 @@ const MAPPING = {
    'chevron.right': 'chevron-right',
    'books.vertical.fill': 'library-books',
    'person.fill': 'person',
+   'person.2.fill': 'group',
    'book.fill': 'book',
    'bookmark.fill': 'bookmark',
    'magnifyingglass.circle.fill': 'search',
