@@ -11,6 +11,9 @@ from . import tmdb_bp
 from ..db import get_db
 from bson.objectid import ObjectId
 
+from ..users.service import add_activity as users_add_activity
+from bson import ObjectId
+
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE, IMG_SIZE = "https://image.tmdb.org/t/p", "w342"
 
@@ -367,6 +370,12 @@ def add_watched_movie(userID: str, movieID: str):
         except Exception:
             new_list_len = None
 
+        _log_activity(
+            oid,
+            "Add movie to watched",
+            {"movieId": mid, "from": "add_watched", "title": (m or {}).get("title")}
+        )
+
         return jsonify({
             "ok": True,
             "userId": uid,
@@ -432,6 +441,13 @@ def add_watch_later_movie(userID: str, movieID: str):
 
         after = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1}) or {}
         new_list = after.get("watchLaterMovies") or []
+        
+        _log_activity(
+            oid,
+            "Add movie to Watch Later",
+            {"movieId": mid, "from": "add_watch_later", "title": (m or {}).get("title")}
+        )
+
         return jsonify({
             "ok": True,
             "userId": uid,
@@ -533,6 +549,16 @@ def create_movie_review():
                 "detail": str(e),
                 "reviewId": str(review_id)
             }), 500
+
+        _log_activity(
+            oid,
+            "Reviewed movie",
+            {
+                "movieId": mid,
+                "rating": r,
+                "title": (title if isinstance(title, str) else None),
+            }
+        )
 
         return jsonify({
             "ok": True,
@@ -679,6 +705,13 @@ def remove_watched_movie(userID: str, movieID: str):
         after = db.users.find_one({"_id": oid}, {"watchedMovies": 1}) or {}
         new_list = after.get("watchedMovies") or []
 
+        if res.modified_count:
+            _log_activity(
+                oid,
+                "Removed from Watched",
+                {"movieId": mid}
+            )
+
         return jsonify({
             "ok": True,
             "userId": str(oid),
@@ -722,6 +755,13 @@ def remove_watch_later_movie(userID: str, movieID: str):
         after = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1}) or {}
         new_list = after.get("watchLaterMovies") or []
 
+        if res.modified_count:
+            _log_activity(
+                oid,
+                "Removed from Watch Later",
+                {"movieId": mid}
+            )
+
         return jsonify({
             "ok": True,
             "userId": str(oid),
@@ -733,4 +773,22 @@ def remove_watch_later_movie(userID: str, movieID: str):
     except Exception as e:
         current_app.logger.exception("server error")
         return jsonify({"error": "server", "detail": str(e)}), 500
+
+def _log_activity(user_oid: ObjectId, activity: str, meta: dict | None = None) -> str | None:
+    """
+    Create an activity row via users.service and push its id to the user's
+    `activities` array (newest first). Failures are swallowed so TMDB ops
+    don't error out because of logging.
+    """
+    try:
+        act_id = users_add_activity(user_oid, activity, meta if isinstance(meta, dict) else None)
+        db = get_db()
+        db.users.update_one(
+            {"_id": user_oid},
+            {"$push": {"activities": {"$each": [ObjectId(act_id)], "$position": 0}}}
+        )
+        return str(act_id)
+    except Exception:
+        current_app.logger.warning("activity log failed for user %s", user_oid)
+        return None
 

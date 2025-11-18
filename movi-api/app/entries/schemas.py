@@ -5,7 +5,7 @@ from ..users.schemas import UserIn
 
 class Entry(BaseModel):
     title: str
-    year_released: int | List[int] # for range of years
+    year_released: int | List[int] | None # for range of years
     date_added: datetime
     avg_rating: float
     added_by: dict[UserIn, int] # Key: user Value: rating given
@@ -14,7 +14,7 @@ class Entry(BaseModel):
     wishlisted_by: List[UserIn] | None
 
 class Book(Entry):
-    author: str | List[str]
+    author: str | List[str] | None
     publisher: str | List[str]
     page_count: int
     publisher: str | List[str] | None

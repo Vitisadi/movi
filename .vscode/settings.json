@@ -1,0 +1,10 @@
+{
+   "workbench.colorCustomizations": {
+      "activityBar.background": "#4D1A3E",
+      "titleBar.activeBackground": "#6C2556",
+      "titleBar.activeForeground": "#FDF8FB"
+   },
+   "python-envs.defaultEnvManager": "ms-python.python:conda",
+   "python-envs.defaultPackageManager": "ms-python.python:conda",
+   "python-envs.pythonProjects": []
+}
