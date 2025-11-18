@@ -77,3 +77,43 @@ def create_user(payload: Dict[str, Any]) -> Dict[str, Any]:
 def delete_user(user_id: str) -> None:
     db = get_db()
     db.users.delete_one({"_id": ObjectId(user_id)})
+
+
+def get_profile_summary(user_id: str) -> dict:
+    """Return aggregated profile counts for UI display."""
+    db = get_db()
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise ValueError("invalid_id")
+
+    user = db.users.find_one({"_id": oid})
+    if not user:
+        raise LookupError("user_not_found")
+
+    watched = user.get("watchedMovies") or []
+    watch_later = user.get("watchLaterMovies") or []
+    read_books = user.get("readBooks") or []
+    tobe_books = user.get("toBeReadBooks") or []
+
+    # reviews stored in collections; count both movieReviews and bookReviews
+    try:
+        movie_reviews_count = db.movieReviews.count_documents({"userId": oid})
+    except Exception:
+        movie_reviews_count = 0
+    try:
+        book_reviews_count = db.bookReviews.count_documents({"userId": oid})
+    except Exception:
+        book_reviews_count = 0
+
+    summary = {
+        "userId": user_id,
+        "moviesWatched": len(watched),
+        "booksRead": len(read_books),
+        "watchLaterCount": len(watch_later),
+        "toBeReadCount": len(tobe_books),
+        "wishlistCount": len(watch_later) + len(tobe_books),
+        "reviewsCount": int(movie_reviews_count or 0) + int(book_reviews_count or 0),
+        "bio": user.get("bio") or "",
+    }
+    return summary

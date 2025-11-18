@@ -2,6 +2,7 @@
 from flask import request, jsonify, current_app
 from bson import ObjectId
 import re
+from datetime import datetime
 
 from . import users_bp, service   # reuse blueprint created in app/users/__init__.py
 from ..db import get_db
@@ -175,3 +176,51 @@ def create_user_route():
     payload = request.get_json(force=True) or {}
     created = service.create_user(payload)
     return jsonify(created), 201
+
+
+@users_bp.get("/profile/<userId>")
+def get_profile_route(userId: str):
+    """Return aggregated counts and profile data for a user."""
+    try:
+        try:
+            oid = ObjectId((userId or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_user_id"}), 400
+
+        # service will validate existence
+        summary = service.get_profile_summary(str(oid))
+        return jsonify({"ok": True, "profile": summary}), 200
+    except LookupError:
+        return jsonify({"error": "user_not_found"}), 404
+    except ValueError:
+        return jsonify({"error": "invalid_user_id"}), 400
+    except Exception as e:
+        current_app.logger.exception("get_profile_route failed")
+        return jsonify({"error": "server", "detail": str(e)}), 500
+
+
+@users_bp.post("/<userId>/bio")
+def set_bio_route(userId: str):
+    """Set the `bio` field for a user. Body: { "bio": "..." }"""
+    try:
+        try:
+            oid = ObjectId((userId or "").strip())
+        except Exception:
+            return jsonify({"error": "invalid_user_id"}), 400
+
+        payload = request.get_json(silent=True) or {}
+        bio = payload.get("bio")
+        if bio is None or not isinstance(bio, str):
+            return jsonify({"error": "missing_bio"}), 400
+
+        db = get_db()
+        res = db.users.update_one({"_id": oid}, {"$set": {"bio": bio, "updatedAt": datetime.utcnow()}})
+        if res.matched_count == 0:
+            return jsonify({"error": "user_not_found"}), 404
+
+        user = db.users.find_one({"_id": oid})
+        # return minimal user info
+        return jsonify({"ok": True, "user": {"_id": str(user["_id"]), "bio": user.get("bio")}}), 200
+    except Exception as e:
+        current_app.logger.exception("set_bio_route failed")
+        return jsonify({"error": "server", "detail": str(e)}), 500
