@@ -182,6 +182,9 @@ def add_read_book(user_id: str, book_id: str):
         else:
             db.users.update_one({"_id": oid}, {"$push": {"readBooks": book_id}})
 
+        # Remove book from read later list if present
+        db.users.update_one({"_id": oid}, {"$pull": {"toBeReadBooks": book_id}})
+
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
@@ -325,19 +328,19 @@ def add_review_book():
                "rating": r,
                "title": title if (title is None or isinstance(title, str)) else str(title), 
                "body": body.strip(),
-               "createdAt": datetime.datetime.now(datetime.UTC),
-               "updatedAt": datetime.datetime.now(datetime.UTC)}
-
+               "createdAt": datetime.datetime.utcnow(),
+               "updatedAt": datetime.datetime.utcnow(),
+        }
         res = db.bookReviews.insert_one(doc)
         review_id = res.inserted_id
 
         try:
             db.users.update_one(
                 {"_id": oid},
-                {"$addToSet": {"movieReviews": review_id}}
+                {"$addToSet": {"bookReviews": review_id}}
             )
         except Exception as e:
-            # if this fails (e.g., validator missing movieReviews), surface a helpful error
+            # if this fails (e.g., validator missing bookReviews), surface a helpful error
             return jsonify({
                 "error": "user_update_failed",
                 "detail": str(e),

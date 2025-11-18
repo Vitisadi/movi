@@ -376,6 +376,9 @@ def add_watched_movie(userID: str, movieID: str):
             {"movieId": mid, "from": "add_watched", "title": (m or {}).get("title")}
         )
 
+        # Remove movie from watch later if stored as such
+        db.users.update_one({"_id": oid}, {"$pull": {"watchLaterMovies": mid}})
+
         return jsonify({
             "ok": True,
             "userId": uid,
