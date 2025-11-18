@@ -277,27 +277,41 @@ export default function SearchScreen() {
         const res = bookRes.value;
         if (!res.ok) throw new Error(`Books HTTP ${res.status}`);
         const data = await res.json();
-        const arr = Array.isArray(data) ? data : [];
+        const arr = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data)
+            ? data
+            : [];
         mappedBooks = arr
           .map((entry: any) => {
-            const raw = Array.isArray(entry) ? entry[0] : null;
-            const cover = Array.isArray(entry) ? entry[1] : undefined;
+            const raw =
+              Array.isArray(entry) ? entry[0] : typeof entry === 'object' ? entry : null;
             if (!raw) return null;
-            const worksKey: string = String(raw.key || ''); // e.g. '/works/OL2665176W'
+            const worksKey = String(raw.id || raw.key || '').trim(); // e.g. '/works/OL2665176W'
+            if (!worksKey) return null;
             const id = worksKey.split('/').pop() || worksKey;
-            const authorArr = Array.isArray(raw.author_name)
-              ? raw.author_name
-              : [];
-            const author = authorArr.filter(Boolean).join(', ');
-            const year = raw.first_publish_year
-              ? Number(raw.first_publish_year)
-              : undefined;
+            const authorArr = Array.isArray(raw.authors)
+              ? raw.authors
+              : Array.isArray(raw.author_name)
+                ? raw.author_name
+                : [];
+            const author = authorArr
+              .map((a: any) =>
+                typeof a === 'string' ? a : String(a?.name || '').trim()
+              )
+              .filter(Boolean)
+              .join(', ');
+            const year = raw.first_publish_year ?? raw.year;
+            const cover =
+              raw.coverUrl ??
+              raw.cover_url ??
+              (Array.isArray(entry) ? entry[1] : undefined);
             return {
               id,
               kind: 'book' as const,
               title: String(raw.title || ''),
               author: author || undefined,
-              year: Number.isFinite(year as any) ? (year as number) : undefined,
+              year: Number.isFinite(Number(year)) ? Number(year) : undefined,
               coverUrl: cover || undefined,
             } as SearchItem;
           })
