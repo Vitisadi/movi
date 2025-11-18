@@ -22,12 +22,22 @@ const API_BASE_URL =
    (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) ||
    'http://127.0.0.1:3000';
 
+type RawActivityUser = {
+   id?: string | null;
+   _id?: string | null;
+   username?: string | null;
+   name?: Record<string, unknown> | string | null;
+   avatarUrl?: string | null;
+};
+
 type RawActivity = {
    _id?: string;
    id?: string;
    activity?: unknown;
    createdAt?: unknown;
    meta?: Record<string, unknown> | null;
+   user?: RawActivityUser | null;
+   userId?: unknown;
 };
 
 type ActivityFeedItem = {
@@ -38,6 +48,10 @@ type ActivityFeedItem = {
    timestamp: number | null;
    createdAtLabel: string;
    movieId?: string | null;
+   actorDisplayName: string | null;
+   actorId: string | null;
+   actorUsername: string | null;
+   isCurrentUser: boolean;
 };
 
 const MINUTE = 60 * 1000;
@@ -102,10 +116,7 @@ function formatRelativeTime(date: Date | null): string {
    }
 }
 
-function readMeta(
-   meta: Record<string, unknown> | null,
-   key: string
-): unknown {
+function readMeta(meta: Record<string, unknown> | null, key: string): unknown {
    if (!meta) {
       return undefined;
    }
@@ -135,22 +146,82 @@ function getNumber(value: unknown): number | null {
    return null;
 }
 
-function shapeActivity(raw: RawActivity): ActivityFeedItem {
-   const meta = (raw.meta && typeof raw.meta === 'object'
-      ? raw.meta
-      : null) as Record<string, unknown> | null;
+function formatName(value: unknown): string | null {
+   if (!value) {
+      return null;
+   }
+   if (typeof value === 'string') {
+      return getString(value);
+   }
+   if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      const first = getString(obj.first);
+      const last = getString(obj.last);
+      const combined = [first, last].filter(Boolean).join(' ').trim();
+      if (combined) {
+         return combined;
+      }
+      return first || last || null;
+   }
+   return null;
+}
+
+function getObjectIdString(value: unknown): string | null {
+   if (!value) {
+      return null;
+   }
+   if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+   }
+   if (
+      typeof value === 'object' &&
+      value !== null &&
+      Object.prototype.hasOwnProperty.call(value, '$oid')
+   ) {
+      const obj = value as Record<string, unknown>;
+      return getObjectIdString(obj.$oid);
+   }
+   return null;
+}
+
+function shapeActivity(
+   raw: RawActivity,
+   currentUserId?: string
+): ActivityFeedItem {
+   const meta = (
+      raw.meta && typeof raw.meta === 'object' ? raw.meta : null
+   ) as Record<string, unknown> | null;
 
    const id =
       getString(raw._id) ||
       getString(raw.id) ||
       `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-   const message =
-      getString(raw.activity) || 'Activity recorded';
+   const message = getString(raw.activity) || 'Activity recorded';
+
+   const rawUser =
+      raw.user && typeof raw.user === 'object'
+         ? (raw.user as RawActivityUser)
+         : null;
+   const actorId =
+      getObjectIdString(rawUser?._id) ||
+      getObjectIdString(rawUser?.id) ||
+      getObjectIdString(raw.userId);
+   const actorUsername = getString(rawUser?.username) || null;
+   const actorName = formatName(rawUser?.name);
+   const isCurrentUser = Boolean(
+      actorId && currentUserId && actorId === currentUserId
+   );
+   let actorDisplayName = actorName || actorUsername || null;
+   if (isCurrentUser) {
+      actorDisplayName = 'You';
+   } else if (!actorDisplayName && actorId) {
+      actorDisplayName = 'A friend';
+   }
 
    let highlight =
-      getString(readMeta(meta, 'title')) ||
-      getString(readMeta(meta, 'name'));
+      getString(readMeta(meta, 'title')) || getString(readMeta(meta, 'name'));
 
    const chips: string[] = [];
 
@@ -164,8 +235,7 @@ function shapeActivity(raw: RawActivity): ActivityFeedItem {
       chips.push(status);
    }
 
-   const movieIdRaw =
-      readMeta(meta, 'movieId') ?? readMeta(meta, 'id');
+   const movieIdRaw = readMeta(meta, 'movieId') ?? readMeta(meta, 'id');
    const movieId =
       typeof movieIdRaw === 'number' || typeof movieIdRaw === 'string'
          ? String(movieIdRaw).trim()
@@ -204,6 +274,10 @@ function shapeActivity(raw: RawActivity): ActivityFeedItem {
       timestamp,
       createdAtLabel: formatRelativeTime(createdAt),
       movieId: movieId || null,
+      actorDisplayName,
+      actorId: actorId || null,
+      actorUsername,
+      isCurrentUser,
    };
 }
 
@@ -224,10 +298,8 @@ export default function HomeScreen() {
 
    const cardBackground = colorScheme === 'dark' ? '#1b1f24' : '#f6f8fb';
    const borderColor = colorScheme === 'dark' ? '#262b32' : '#e5e9ef';
-   const posterPlaceholderBg =
-      colorScheme === 'dark' ? '#272d37' : '#e6ebf3';
-   const posterPlaceholderText =
-      colorScheme === 'dark' ? '#a0aab8' : '#5b6c84';
+   const posterPlaceholderBg = colorScheme === 'dark' ? '#272d37' : '#e6ebf3';
+   const posterPlaceholderText = colorScheme === 'dark' ? '#a0aab8' : '#5b6c84';
 
    const fetchActivity = useCallback(
       async (initial = false) => {
@@ -244,7 +316,9 @@ export default function HomeScreen() {
             setError(null);
 
             const response = await fetch(
-               `${API_BASE_URL}/users/${encodeURIComponent(user.id)}/activity`
+               `${API_BASE_URL}/users/${encodeURIComponent(
+                  user.id
+               )}/activity/friends`
             );
             if (response.status === 404) {
                setItems([]);
@@ -252,18 +326,14 @@ export default function HomeScreen() {
                return;
             }
             if (!response.ok) {
-               throw new Error(
-                  `Request failed (${response.status})`
-               );
+               throw new Error(`Request failed (${response.status})`);
             }
             const data = await response.json().catch(() => ({}));
             const rawItems = Array.isArray(data?.items) ? data.items : [];
+            const currentUserId = user.id;
             const shaped = rawItems
-               .map((item) => shapeActivity(item as RawActivity))
-               .sort(
-                  (a, b) =>
-                     (b.timestamp ?? 0) - (a.timestamp ?? 0)
-               );
+               .map((item) => shapeActivity(item as RawActivity, currentUserId))
+               .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
             setItems(shaped);
          } catch (err: unknown) {
             const message =
@@ -379,7 +449,7 @@ export default function HomeScreen() {
       void loadPosters();
 
       return () => {
-        controller.abort();
+         controller.abort();
       };
    }, [items, moviePosters]);
 
@@ -391,7 +461,7 @@ export default function HomeScreen() {
             item.movieId && moviePosters[item.movieId]
                ? moviePosters[item.movieId] || undefined
                : undefined;
-
+         console.log(item);
          return (
             <View
                style={[
@@ -404,19 +474,18 @@ export default function HomeScreen() {
             >
                <View style={styles.cardHeader}>
                   <Text
-                     style={[
-                        styles.activityText,
-                        { color: textColor },
-                     ]}
+                     style={[styles.activityText, { color: textColor }]}
+                     numberOfLines={2}
                   >
+                     {item.actorDisplayName ? (
+                        <Text style={styles.actorLabel}>
+                           {item.actorDisplayName}
+                        </Text>
+                     ) : null}
+                     {item.actorDisplayName ? ' · ' : ''}
                      {item.message}
                   </Text>
-                  <Text
-                     style={[
-                        styles.timestamp,
-                        { color: iconColor },
-                     ]}
-                  >
+                  <Text style={[styles.timestamp, { color: iconColor }]}>
                      {item.createdAtLabel}
                   </Text>
                </View>
@@ -447,10 +516,7 @@ export default function HomeScreen() {
                   <View style={styles.cardBody}>
                      {item.highlight ? (
                         <Text
-                           style={[
-                              styles.highlight,
-                              { color: textColor },
-                           ]}
+                           style={[styles.highlight, { color: textColor }]}
                            numberOfLines={2}
                         >
                            {item.highlight}
@@ -498,23 +564,13 @@ export default function HomeScreen() {
       ]
    );
 
-   const keyExtractor = useCallback(
-      (item: ActivityFeedItem) => item.id,
-      []
-   );
+   const keyExtractor = useCallback((item: ActivityFeedItem) => item.id, []);
 
    const listEmptyComponent = (
       <View style={styles.emptyState}>
-         <ThemedText style={styles.emptyTitle}>
-            No activity yet
-         </ThemedText>
-         <Text
-            style={[
-               styles.emptySubtitle,
-               { color: iconColor },
-            ]}
-         >
-            Start adding movies to your library to see them appear
+         <ThemedText style={styles.emptyTitle}>No activity yet</ThemedText>
+         <Text style={[styles.emptySubtitle, { color: iconColor }]}>
+            Start logging movies or follow friends to see their updates land
             here.
          </Text>
       </View>
@@ -525,12 +581,7 @@ export default function HomeScreen() {
          return (
             <View style={styles.centerContent}>
                <ActivityIndicator size='small' color={tintColor} />
-               <Text
-                  style={[
-                     styles.loadingText,
-                     { color: iconColor },
-                  ]}
-               >
+               <Text style={[styles.loadingText, { color: iconColor }]}>
                   Loading your activity…
                </Text>
             </View>
@@ -540,51 +591,26 @@ export default function HomeScreen() {
       if (!user) {
          return (
             <View style={styles.loginState}>
-               <Text
-                  style={[
-                     styles.loginTitle,
-                     { color: textColor },
-                  ]}
-               >
+               <Text style={[styles.loginTitle, { color: textColor }]}>
                   Welcome to Movi
                </Text>
-               <Text
-                  style={[
-                     styles.loginSubtitle,
-                     { color: iconColor },
-                  ]}
-               >
-                  Sign in to keep track of everything you have been
-                  watching.
+               <Text style={[styles.loginSubtitle, { color: iconColor }]}>
+                  Sign in to keep track of everything you have been watching.
                </Text>
                <TouchableOpacity
-                  style={[
-                     styles.ctaButton,
-                     { backgroundColor: tintColor },
-                  ]}
+                  style={[styles.ctaButton, { backgroundColor: tintColor }]}
                   onPress={() => router.push('/(auth)/login')}
                >
-                  <Text
-                     style={[
-                        styles.ctaButtonText,
-                        { color: '#fff' },
-                     ]}
-                  >
+                  <Text style={[styles.ctaButtonText, { color: '#fff' }]}>
                      Log In
                   </Text>
                </TouchableOpacity>
                <TouchableOpacity
-                  style={[
-                     styles.ctaButtonOutline,
-                     { borderColor: tintColor },
-                  ]}
+                  style={[styles.ctaButtonOutline, { borderColor: tintColor }]}
                   onPress={() => router.push('/(auth)/register')}
                >
                   <Text
-                     style={[
-                        styles.ctaButtonOutlineText,
-                        { color: tintColor },
-                     ]}
+                     style={[styles.ctaButtonOutlineText, { color: tintColor }]}
                   >
                      Create account
                   </Text>
@@ -596,27 +622,14 @@ export default function HomeScreen() {
       if (error) {
          return (
             <View style={styles.centerContent}>
-               <Text
-                  style={[
-                     styles.errorText,
-                     { color: textColor },
-                  ]}
-               >
+               <Text style={[styles.errorText, { color: textColor }]}>
                   {error}
                </Text>
                <TouchableOpacity
-                  style={[
-                     styles.retryButton,
-                     { backgroundColor: tintColor },
-                  ]}
+                  style={[styles.retryButton, { backgroundColor: tintColor }]}
                   onPress={handleRetry}
                >
-                  <Text
-                     style={[
-                        styles.retryButtonText,
-                        { color: '#fff' },
-                     ]}
-                  >
+                  <Text style={[styles.retryButtonText, { color: '#fff' }]}>
                      Try again
                   </Text>
                </TouchableOpacity>
@@ -651,14 +664,9 @@ export default function HomeScreen() {
       <ThemedView style={styles.container}>
          <View style={styles.header}>
             <ThemedText type='title'>Home</ThemedText>
-            <Text
-               style={[
-                  styles.subtitle,
-                  { color: iconColor },
-               ]}
-            >
+            <Text style={[styles.subtitle, { color: iconColor }]}>
                {user
-                  ? `Welcome back, ${greetingName}. Here's what you have been up to.`
+                  ? `Welcome back, ${greetingName}. Here's what you and your friends have been up to.`
                   : 'Your personal activity feed lives here.'}
             </Text>
          </View>
@@ -795,6 +803,9 @@ const styles = StyleSheet.create({
       fontSize: 16,
       fontWeight: '600',
       flex: 1,
+   },
+   actorLabel: {
+      fontWeight: '700',
    },
    timestamp: {
       fontSize: 13,
