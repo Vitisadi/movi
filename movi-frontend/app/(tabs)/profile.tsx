@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { router } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 
 export default function ProfileScreen() {
     const { user, logout, updateUser } = useAuth();
@@ -27,42 +28,44 @@ export default function ProfileScreen() {
         reviews: 0,
     });
 
-    const API_BASE = "http://localhost:3000"; //is this 5000 or 3000?
+    const API_BASE = "http://localhost:3000";
     const uid = user?.id;
 
-    React.useEffect(() => {
-        if (!uid) return;
-        let mounted = true;
+    useFocusEffect(
+        React.useCallback(() => {
+            if (!uid) return;
 
-        async function loadProfile() {
-            try {
-                const res = await fetch(`${API_BASE}/users/profile/${uid}`);
-                if (!res.ok) return;
+            let active = true;
 
-                const j = await res.json();
-                const p = j.profile;
+            async function loadProfile() {
+                try {
+                    const res = await fetch(`${API_BASE}/users/profile/${uid}`);
+                    if (!res.ok) return;
+                    const j = await res.json();
+                    const p = j.profile;
 
-                if (!mounted) return;
+                    if (!active) return;
 
-                setStats({
-                    watched: p.moviesWatched || 0,
-                    reading: p.booksRead || 0,
-                    wishlist: p.wishlistCount || 0,
-                    reviews: p.reviewsCount || 0,
-                });
+                    setStats({
+                        watched: p.moviesWatched || 0,
+                        reading: p.booksRead || 0,
+                        wishlist: p.wishlistCount || 0,
+                        reviews: p.reviewsCount || 0,
+                    });
 
-                // ⭐ Update user bio from backend
-                await updateUser({ bio: p.bio });
-            } catch (err) {
-                console.log("Failed to load profile", err);
+                    updateUser({ bio: p.bio });
+                } catch (err) {
+                    console.log("Failed to load profile", err);
+                }
             }
-        }
 
-        loadProfile();
-        return () => {
-            mounted = false;
-        };
-    }, [uid, updateUser]);
+            loadProfile();
+
+            return () => {
+                active = false;
+            };
+        }, [uid])
+    );
 
     const handleLogout = async () => {
         try {
