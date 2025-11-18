@@ -23,7 +23,7 @@ def getFollowers(user_id: str):
         return jsonify({"error": "server", "detail": str(e)}), 500
     
 @friend_bp.get("/following/user/<user_id>")
-def getFollowers(user_id: str):
+def getFollowing(user_id: str):
     db = get_db()
     try: 
         oid = ObjectId(user_id)
