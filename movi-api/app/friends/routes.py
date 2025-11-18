@@ -16,14 +16,14 @@ def getFollowers(user_id: str):
         followers = user.get("followers") or []
         items = []
         for follower in followers:
-            items.append({"name": follower.get("username"), "userId": follower.get("_id")})
+            items.append({"name": follower.get("username"), "userId": str(follower.get("_id"))})
         
-        return jsonify({"userId": id, "count": len(items), "followers": items}), 200
+        return jsonify({"userId": user_id, "count": len(items), "followers": items}), 200
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
     
 @friend_bp.get("/following/user/<user_id>")
-def getFollowers(user_id: str):
+def getFollowing(user_id: str):
     db = get_db()
     try: 
         oid = ObjectId(user_id)
@@ -37,7 +37,7 @@ def getFollowers(user_id: str):
         for following in followings:
             items.append({"name": following.get("username"), "userId": following.get("_id")})
         
-        return jsonify({"userId": id, "count": len(items), "following": items}), 200
+        return jsonify({"userId": user_id, "count": len(items), "following": items}), 200
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
     
