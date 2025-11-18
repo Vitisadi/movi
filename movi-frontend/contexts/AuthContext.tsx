@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
@@ -178,7 +178,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
     };
 
-    const updateUser = async (partial: Partial<User>): Promise<void> => {
+    const updateUser = useCallback(async (partial: Partial<User>): Promise<void> => {
         setUser((prev) => {
             if (!prev) return prev;
             return { ...prev, ...partial };
@@ -193,7 +193,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } catch (e) {
             console.error("Failed to persist updated user", e);
         }
-    };
+    }, []);
 
     const value: AuthContextType = {
         user,

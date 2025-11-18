@@ -28,14 +28,13 @@ export default function ProfileScreen() {
     });
 
     const API_BASE = "http://localhost:3000"; //is this 5000 or 3000?
+    const uid = user?.id;
 
     React.useEffect(() => {
+        if (!uid) return;
         let mounted = true;
 
         async function loadProfile() {
-            if (!user) return;
-            const uid = user.id;
-
             try {
                 const res = await fetch(`${API_BASE}/users/profile/${uid}`);
                 if (!res.ok) return;
@@ -63,7 +62,7 @@ export default function ProfileScreen() {
         return () => {
             mounted = false;
         };
-    }, [user]);
+    }, [uid, updateUser]);
 
     const handleLogout = async () => {
         try {
@@ -76,48 +75,11 @@ export default function ProfileScreen() {
     };
 
     const handleEditProfile = () => {
-        // bio edit using prompt where available (iOS). For other platforms open a dedicated screen.
-        const uid = user?.id;
-        if (!uid) {
+        if (!user?.id) {
             Alert.alert("Error", "User ID missing");
             return;
         }
-        // Appeareantly, Prompt is only available on iOS in React Native's Alert; therefore we will fallback to a simple message
-        // Use naive prompt by asking user to navigate to Edit Profile screen in future.
-        if ((Alert as any).prompt) {
-            (Alert as any).prompt("Edit Bio", "Enter new bio", async (text: string | null) => {
-                if (!text) return;
-
-                try {
-                    const resp = await fetch(`${API_BASE}/users/${uid}/bio`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ bio: text }),
-                    });
-
-                    if (!resp.ok) throw new Error("failed");
-
-                    // Immediately update user bio locally
-                    await updateUser({ bio: text });
-
-                    // Reload stats
-                    const res2 = await fetch(`${API_BASE}/users/profile/${uid}`);
-                    const j2 = await res2.json();
-                    const p = j2.profile;
-
-                    setStats({
-                        watched: p.moviesWatched,
-                        reading: p.booksRead,
-                        wishlist: p.wishlistCount,
-                        reviews: p.reviewsCount,
-                    });
-                } catch (e) {
-                    Alert.alert("Error", "Could not update bio");
-                }
-            });
-        } else {
-            Alert.alert("Coming Soon", "Profile editing coming soon on this platform.");
-        }
+        router.push("/profile/edit");
     };
 
     if (!user) {
