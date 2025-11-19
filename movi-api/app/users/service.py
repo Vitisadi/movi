@@ -1,10 +1,9 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from bson.objectid import ObjectId
-from .schemas import UserIn, UserOut
-from ..db import get_db
-from datetime import datetime
+from typing import Optional, List, Dict, Any, Sequence
+
 from bson import ObjectId
+
+from .schemas import UserIn, UserOut
 from ..db import get_db
 
 def add_activity(user_id: ObjectId, activity: str, meta: dict | None = None) -> str:
@@ -18,26 +17,89 @@ def add_activity(user_id: ObjectId, activity: str, meta: dict | None = None) -> 
     res = db.userActivities.insert_one(doc)
     return str(res.inserted_id)
 
+def _build_user_lookup(db, ids: Sequence[ObjectId]) -> dict[str, dict[str, Any]]:
+    valid: list[ObjectId] = []
+    seen: set[str] = set()
+    for oid in ids:
+        if not isinstance(oid, ObjectId):
+            continue
+        key = str(oid)
+        if key in seen:
+            continue
+        seen.add(key)
+        valid.append(oid)
+    if not valid:
+        return {}
+
+    cursor = db.users.find(
+        {"_id": {"$in": valid}},
+        {"username": 1, "name": 1, "avatarUrl": 1}
+    )
+    lookup: dict[str, dict[str, Any]] = {}
+    for doc in cursor:
+        key = str(doc["_id"])
+        lookup[key] = {
+            "id": key,
+            "username": doc.get("username"),
+            "name": doc.get("name"),
+            "avatarUrl": doc.get("avatarUrl"),
+        }
+    return lookup
+
+
+def _serialize_activities(docs: list[dict], user_lookup: dict[str, dict[str, Any]] | None = None) -> list[dict]:
+    out: list[dict[str, Any]] = []
+    for d in docs:
+        activity_id = d.get("_id")
+        user_raw = d.get("userId")
+        if isinstance(activity_id, ObjectId):
+            act_id_str: str | None = str(activity_id)
+        elif isinstance(activity_id, str):
+            act_id_str = activity_id
+        else:
+            act_id_str = str(activity_id) if activity_id is not None else None
+
+        if isinstance(user_raw, ObjectId):
+            user_id_str = str(user_raw)
+        elif isinstance(user_raw, str):
+            user_id_str = user_raw
+        else:
+            user_id_str = None
+
+        shaped: dict[str, Any] = {
+            "_id": act_id_str,
+            "userId": user_id_str,
+            "activity": d.get("activity"),
+            "meta": d.get("meta"),
+            "createdAt": d.get("createdAt"),
+        }
+
+        if user_lookup and user_id_str:
+            actor = user_lookup.get(user_id_str)
+            if actor:
+                shaped["user"] = actor
+
+        out.append(shaped)
+    return out
+
+
 def get_user_activity(user_id: ObjectId, limit: int = 50) -> list[dict]:
     db = get_db()
-    cur = db.userActivities.find({"userId": user_id}).sort("createdAt", -1).limit(limit)
-    out = []
-    for d in cur:
-        d["_id"] = str(d["_id"])
-        d["userId"] = str(d["userId"])
-        out.append(d)
-    return out
+    docs = list(db.userActivities.find({"userId": user_id}).sort("createdAt", -1).limit(limit))
+    actors = _build_user_lookup(db, [user_id])
+    return _serialize_activities(docs, actors)
+
 
 def get_user_activity_with_friends(user_id: ObjectId, friend_ids: list[ObjectId], limit: int = 100) -> list[dict]:
     db = get_db()
     ids = [user_id] + list(friend_ids or [])
-    cur = db.userActivities.find({"userId": {"$in": ids}}).sort("createdAt", -1).limit(limit)
-    out = []
-    for d in cur:
-        d["_id"] = str(d["_id"])
-        d["userId"] = str(d["userId"])
-        out.append(d)
-    return out
+    docs = list(
+        db.userActivities.find({"userId": {"$in": ids}})
+        .sort("createdAt", -1)
+        .limit(limit)
+    )
+    actors = _build_user_lookup(db, ids)
+    return _serialize_activities(docs, actors)
 
 def _serialize(doc: Optional[dict]) -> Optional[dict]:
     if not doc:

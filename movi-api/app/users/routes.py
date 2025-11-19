@@ -83,24 +83,50 @@ def list_user_activity_with_friends(userId: str):
             return jsonify({"error": "invalid_user_id"}), 400
 
         friends_q = (request.args.get("friends") or "").strip()
-        friend_ids = []
+        friend_ids: list[ObjectId] = []
+        seen_friend_ids: set[str] = set()
+
+        def _append_friend(candidate) -> None:
+            if candidate is None:
+                return
+            target = candidate
+            if isinstance(target, dict):
+                target = (
+                    target.get("_id")
+                    or target.get("id")
+                    or target.get("userId")
+                )
+            if isinstance(target, ObjectId):
+                friend_oid = target
+            elif isinstance(target, str):
+                try:
+                    friend_oid = ObjectId(target.strip())
+                except Exception:
+                    return
+            else:
+                return
+            key = str(friend_oid)
+            if key in seen_friend_ids:
+                return
+            seen_friend_ids.add(key)
+            friend_ids.append(friend_oid)
+
         if friends_q:
             for s in friends_q.split(","):
                 s = s.strip()
                 if not s:
                     continue
-                try:
-                    friend_ids.append(ObjectId(s))
-                except Exception:
-                    continue
+                _append_friend(s)
         else:
             db = get_db()
-            u = db.users.find_one({"_id": oid}, {"friends": 1}) or {}
-            for s in (u.get("friends") or []):
-                try:
-                    friend_ids.append(ObjectId(str(s)))
-                except Exception:
-                    continue
+            u = db.users.find_one({"_id": oid}, {"following": 1, "friends": 1})
+            if not u:
+                return jsonify({"error": "user_not_found"}), 404
+            for entry in (u.get("following") or []):
+                _append_friend(entry)
+            # allow legacy `friends` array fallback if populated
+            for entry in (u.get("friends") or []):
+                _append_friend(entry)
 
         try:
             limit = max(1, min(500, int(request.args.get("limit", "100"))))
