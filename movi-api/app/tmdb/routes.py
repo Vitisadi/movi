@@ -560,6 +560,7 @@ def create_movie_review():
                 "movieId": mid,
                 "rating": r,
                 "title": (title if isinstance(title, str) else None),
+                "reviewId": str(review_id),
             }
         )
 
