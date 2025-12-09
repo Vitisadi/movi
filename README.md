@@ -34,10 +34,10 @@ PORT=3000
 ```bash
 cd movi-api
 ./start.sh
-# Or manually: python -m flask --app wsgi:app --debug run --port=3000
+# Or manually: python -m flask --app wsgi:app --debug run --port=3000 --host=0.0.0.0
 ```
 
-The API will be available at: `http://localhost:3000`
+The API will be available at: `http://localhost:3000` (or `http://<your-local-ip>:3000` on your LAN)
 
 ### Start the Frontend
 
@@ -46,3 +46,14 @@ cd movi-frontend
 npm run start
 # Or: npx expo start
 ```
+
+### Developing on a physical device
+
+- Ensure your phone and computer are on the same network.
+- Update `movi-frontend/.env` with your computer's LAN IP:
+
+  ```env
+  EXPO_PUBLIC_API_BASE_URL=http://<your-local-ip>:3000
+  ```
+
+- Restart the Expo dev server after changing the `.env` file so the new API base URL is picked up.

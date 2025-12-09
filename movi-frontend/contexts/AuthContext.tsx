@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
-const API_BASE = "http://localhost:3000";
+const API_BASE =
+    (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) || "http://localhost:3000";
 
 // Types
 export interface User {
