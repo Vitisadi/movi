@@ -59,6 +59,7 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const WEEK = 7 * DAY;
 const YEAR = 365 * DAY;
+const AUTO_REFRESH_INTERVAL_MS = 30 * 1000;
 const TMDB_POSTER_BASE = 'https://image.tmdb.org/t/p/w185';
 
 function toDate(value: unknown): Date | null {
@@ -371,6 +372,17 @@ export default function HomeScreen() {
    const handleRetry = useCallback(() => {
       void fetchActivity(true);
    }, [fetchActivity]);
+
+   useEffect(() => {
+      if (authLoading || !user?.id) {
+         return;
+      }
+      const intervalId = setInterval(() => {
+         void fetchActivity(false);
+      }, AUTO_REFRESH_INTERVAL_MS);
+
+      return () => clearInterval(intervalId);
+   }, [authLoading, fetchActivity, user?.id]);
 
    useEffect(() => {
       const controller = new AbortController();
