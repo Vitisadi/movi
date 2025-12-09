@@ -19,12 +19,18 @@ This script will:
 -  Create a `.env` file template
 -  Set up the basic project structure
 
-Update the `MONGODB_URI` in the `.env` file to the correct URI (found in discord)
+Update the `MONGODB_URI` in the `.env` file to the correct URI (found in discord or make an account below)
+
+https://www.mongodb.com/lp/cloud/atlas/try4-reg?utm_source=google&utm_campaign=search_gs_pl_evergreen_atlas_core-high-int_prosp-brand_gic-null_amers-us_ps-all_desktop_eng_lead&utm_term=atlasmongo&utm_medium=cpc_paid_search&utm_ad=p&utm_ad_campaign_id=19609124046&adgroup=173739098313&cq_cmp=19609124046&gad_source=1&gad_campaignid=19609124046&gbraid=0AAAAADQ1400jeJMO9GXDlXFfjLEP9NnyC&gclid=Cj0KCQiArt_JBhCTARIsADQZaynxZ3OzAU3vB_B_IulNulLmn9zVEQn_Tmz7oKpYvd4c-Nh_rYNzAbMaAiLyEALw_wcB
+
+Run the `init_db.py` file to load up the database.
+Then go through each file and add in the correct `schema.py`
 
 ```env
 MONGODB_URI=mongodb://localhost:27017/movi
 DB_NAME=movi
 PORT=3000
+TMDB_V3_KEY=(https://developer.themoviedb.org/reference/getting-started) <-- found here
 ```
 
 ## Running the Application
