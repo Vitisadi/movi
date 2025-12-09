@@ -373,7 +373,7 @@ def add_watched_movie(userID: str, movieID: str):
         _log_activity(
             oid,
             "Add movie to watched",
-            {"movieId": mid, "from": "add_watched", "title": (m or {}).get("title")}
+            {"movieId": mid, "from": "add_watched", "title": (m or {}).get("title"), "type": "movie"}
         )
 
         # Remove movie from watch later if stored as such
@@ -448,7 +448,7 @@ def add_watch_later_movie(userID: str, movieID: str):
         _log_activity(
             oid,
             "Add movie to Watch Later",
-            {"movieId": mid, "from": "add_watch_later", "title": (m or {}).get("title")}
+            {"movieId": mid, "from": "add_watch_later", "title": (m or {}).get("title"), "type": "movie"}
         )
 
         return jsonify({
@@ -560,6 +560,8 @@ def create_movie_review():
                 "movieId": mid,
                 "rating": r,
                 "title": (title if isinstance(title, str) else None),
+                "reviewId": str(review_id),
+                "type": "movie",
             }
         )
 
@@ -708,13 +710,6 @@ def remove_watched_movie(userID: str, movieID: str):
         after = db.users.find_one({"_id": oid}, {"watchedMovies": 1}) or {}
         new_list = after.get("watchedMovies") or []
 
-        if res.modified_count:
-            _log_activity(
-                oid,
-                "Removed from Watched",
-                {"movieId": mid}
-            )
-
         return jsonify({
             "ok": True,
             "userId": str(oid),
@@ -757,13 +752,6 @@ def remove_watch_later_movie(userID: str, movieID: str):
         # fetch new count for convenience
         after = db.users.find_one({"_id": oid}, {"watchLaterMovies": 1}) or {}
         new_list = after.get("watchLaterMovies") or []
-
-        if res.modified_count:
-            _log_activity(
-                oid,
-                "Removed from Watch Later",
-                {"movieId": mid}
-            )
 
         return jsonify({
             "ok": True,
