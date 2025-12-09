@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import type { ListRenderItem } from 'react-native';
 import {
    ActivityIndicator,
@@ -63,6 +64,7 @@ const WEEK = 7 * DAY;
 const YEAR = 365 * DAY;
 const AUTO_REFRESH_INTERVAL_MS = 30 * 1000;
 const TMDB_POSTER_BASE = 'https://image.tmdb.org/t/p/w185';
+const AUTO_REFRESH_MS = 30000; // 30s
 
 function toDate(value: unknown): Date | null {
    if (!value) {
@@ -472,6 +474,20 @@ export default function HomeScreen() {
    }, [items, moviePosters]);
 
    const greetingName = user?.name?.split(' ')[0] || user?.username || 'there';
+
+   // Auto-refresh when screen focused and periodically while focused
+   useFocusEffect(
+      useCallback(() => {
+         if (authLoading || !user?.id) {
+            return () => {};
+         }
+         void fetchActivity(true);
+         const id = setInterval(() => {
+            void fetchActivity(false);
+         }, AUTO_REFRESH_MS);
+         return () => clearInterval(id);
+      }, [authLoading, fetchActivity, user?.id])
+   );
 
    const renderItem: ListRenderItem<ActivityFeedItem> = useCallback(
       ({ item }) => {

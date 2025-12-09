@@ -120,14 +120,14 @@ export default function LoginScreen() {
 
                <View style={styles.inputContainer}>
                   <ThemedText style={styles.label}>Password</ThemedText>
-                  <View style={styles.passwordRow}>
+                  <View style={styles.inputWrapper}>
                      <TextInput
                         style={[
                            styles.input,
                            {
                               borderColor: tintColor,
                               color: textColor,
-                              flex: 1,
+                              paddingRight: 80,
                            },
                         ]}
                         placeholder='Enter your password'
@@ -142,7 +142,7 @@ export default function LoginScreen() {
                      />
                      <TouchableOpacity
                         onPress={() => setShowPassword((prev) => !prev)}
-                        style={styles.toggle}
+                        style={styles.toggleInside}
                      >
                         <ThemedText style={{ color: tintColor }}>
                            {showPassword ? 'Hide' : 'Show'}
@@ -296,8 +296,15 @@ const styles = StyleSheet.create({
       fontSize: 14,
       fontWeight: '600',
    },
-   passwordRow: { flexDirection: 'row', alignItems: 'center' },
-   toggle: { paddingHorizontal: 8, paddingVertical: 8 },
+   inputWrapper: { position: 'relative' },
+   toggleInside: {
+      position: 'absolute',
+      right: 12,
+      top: 10,
+      paddingHorizontal: 6,
+      paddingVertical: 6,
+      borderRadius: 8,
+   },
    toast: {
       position: 'absolute',
       top: 20,
