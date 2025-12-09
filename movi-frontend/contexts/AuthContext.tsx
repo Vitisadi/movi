@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
+import { getApiBaseUrl } from "@/lib/api";
 
-const API_BASE = "http://localhost:3000";
+const API_BASE = getApiBaseUrl();
 
 // Types
 export interface User {
@@ -84,14 +85,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const login = async (email: string, password: string): Promise<void> => {
         try {
             setIsLoading(true);
+            const payload = {
+                email: email.trim().toLowerCase(),
+                password: password.trim(),
+            };
             const resp = await fetch(`${API_BASE}/auth/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify(payload),
             });
             if (!resp.ok) {
                 const j = await resp.json().catch(() => ({}));
-                throw new Error(j.error || "Login failed");
+                const detail = j?.error || j?.message || "";
+                if (resp.status === 401) {
+                    throw new Error("Incorrect email or password.");
+                }
+                throw new Error(detail || "Login failed. Please try again.");
             }
             const data = await resp.json();
             const t = data.token;
@@ -116,7 +125,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 router.replace("/(tabs)/profile");
             }
         } catch (error) {
-            throw new Error("Invalid email or password");
+            if (error instanceof Error) throw error;
+            throw new Error("Login failed. Please try again.");
         } finally {
             setIsLoading(false);
         }
@@ -125,37 +135,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const register = async (name: string, email: string, password: string): Promise<void> => {
         try {
             setIsLoading(true);
+            const payload = {
+                email: email.trim().toLowerCase(),
+                password: password.trim(),
+                username: name.trim(),
+            };
 
             const resp = await fetch(`${API_BASE}/auth/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, password, username: name }),
+                body: JSON.stringify(payload),
             });
             if (!resp.ok) {
                 const j = await resp.json().catch(() => ({}));
-                throw new Error(j.error || "Registration failed");
+                const errText = j?.error || j?.message || "";
+                if (resp.status === 409) {
+                    if (errText.toLowerCase().includes("email")) {
+                        throw new Error("Email already exists.");
+                    }
+                    if (errText.toLowerCase().includes("username")) {
+                        throw new Error("Username already taken.");
+                    }
+                    throw new Error("Account already exists.");
+                }
+                throw new Error(errText || "Registration failed. Please try again.");
             }
-            // After register you might auto-login or require manual login. We'll auto-login if token returned.
-            const data = await resp.json().catch(() => ({}));
-            if (data.token) {
-                await AsyncStorage.setItem("authToken", data.token);
-                setToken(data.token);
-            }
-            if (data.user) {
-                const u = data.user;
-                const mapped: User = {
-                    id: u._id || u.id,
-                    name: u.name ?? null,
-                    email: u.email,
-                    username: u.username ?? null,
-                    avatarUrl: u.avatarUrl ?? null,
-                    bio: u.bio ?? null,
-                };
-                await AsyncStorage.setItem("user", JSON.stringify(u));
-                setUser(mapped);
-                router.replace("/(tabs)/profile");
-            }
+            // Success: no auto-login, let caller handle redirect
         } catch (error) {
+            if (error instanceof Error) throw error;
             throw new Error("Registration failed. Please try again.");
         } finally {
             setIsLoading(false);
