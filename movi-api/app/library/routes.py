@@ -1,5 +1,5 @@
 from . import library_bp
-from flask import jsonify, request
+from flask import current_app, jsonify, request
 import requests
 from ..entries.schemas import Book
 from ..db import get_db
@@ -8,6 +8,7 @@ import datetime
 import json
 from ..tmdb.routes import _fetch_movie_simple
 from ..users.service import add_activity as users_add_activity
+from typing import Any
 
 def normalize_book(r: dict):
     # Works JSON uses 'covers': [id,...]; Search JSON uses 'cover_i'
@@ -104,6 +105,61 @@ def get_book_by_id(id: str):
         return jsonify({"error": "server", "detail": str(e)}), 500
 
 
+def _safe_book_title(book: Any) -> str | None:
+    """Attempt to extract a title string from a book payload."""
+    try:
+        if isinstance(book, dict):
+            title = book.get("title")
+            if isinstance(title, str):
+                return title
+            if title is not None:
+                return str(title)
+    except Exception:
+        return None
+    return None
+
+
+def _safe_cover_url(book: Any) -> str | None:
+    """Attempt to extract a cover URL from Works/OpenLibrary shapes."""
+    try:
+        if isinstance(book, dict):
+            cover_id = None
+            if isinstance(book.get("covers"), list) and book["covers"]:
+                cover_id = book["covers"][0]
+            if cover_id:
+                return f"https://covers.openlibrary.org/b/id/{cover_id}-M.jpg"
+            if isinstance(book.get("coverUrl"), str):
+                return book["coverUrl"]
+    except Exception:
+        return None
+    return None
+
+
+def _log_activity(user_oid: ObjectId, activity: str, meta: dict | None = None) -> str | None:
+    """
+    Create an activity row and push its id to the user's `activities` array (newest first).
+    Failures are swallowed so book operations do not error out because of logging.
+    """
+    try:
+        act_id = users_add_activity(
+            user_oid,
+            activity,
+            meta if isinstance(meta, dict) else None
+        )
+        db = get_db()
+        db.users.update_one(
+            {"_id": user_oid},
+            {"$push": {"activities": {"$each": [ObjectId(act_id)], "$position": 0}}}
+        )
+        return str(act_id)
+    except Exception:
+        try:
+            current_app.logger.warning("activity log failed for user %s", user_oid)
+        except Exception:
+            pass
+        return None
+
+
 @library_bp.get("/book")
 def searchBook():
     title = (request.args.get("name") or "").strip()
@@ -187,6 +243,17 @@ def add_read_book(user_id: str, book_id: str):
         # Remove book from read later list if present
         db.users.update_one({"_id": oid}, {"$pull": {"toBeReadBooks": book_id}})
 
+        meta = {
+            "bookId": book_id,
+            "status": "Read",
+            "type": "book",
+            "coverUrl": _safe_cover_url(b),
+        }
+        title = _safe_book_title(b)
+        if title:
+            meta["title"] = title
+        _log_activity(oid, "Added book to Read", meta)
+
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
@@ -220,6 +287,17 @@ def add_tbr_book(user_id: str, book_id: str):
             db.users.update_one({"_id": oid}, {"$set": {"toBeReadBooks": [book_id]}})
         else:
             db.users.update_one({"_id": oid}, {"$push": {"toBeReadBooks": book_id}})
+
+        meta = {
+            "bookId": book_id,
+            "status": "Read Later",
+            "type": "book",
+            "coverUrl": _safe_cover_url(b),
+        }
+        title = _safe_book_title(b)
+        if title:
+            meta["title"] = title
+        _log_activity(oid, "Added book to Read Later", meta)
 
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
@@ -533,7 +611,7 @@ def add_review_book():
 
         # Log activity for feed
         try:
-            act_id = users_add_activity(
+            _log_activity(
                 oid,
                 "Reviewed book",
                 {
@@ -541,12 +619,9 @@ def add_review_book():
                     "rating": r,
                     "title": (title if isinstance(title, str) else None),
                     "reviewId": str(review_id),
+                    "type": "book",
+                    "coverUrl": _safe_cover_url(b),
                 },
-            )
-            # newest first
-            db.users.update_one(
-                {"_id": oid},
-                {"$push": {"activities": {"$each": [ObjectId(act_id)], "$position": 0}}},
             )
         except Exception:
             pass

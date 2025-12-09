@@ -51,7 +51,7 @@ type Review = {
   createdAt?: string;
 };
 
-const TABS = ['Watched', 'Watch Later', 'Reviews'] as const;
+const TABS = ['Completed', 'Saved', 'Reviews'] as const;
 type TabKey = (typeof TABS)[number];
 
 // Frontend API base URL from env
@@ -60,7 +60,7 @@ const API_BASE_URL =
   'http://127.0.0.1:3000';
 
 export default function LibraryScreen() {
-  const [activeTab, setActiveTab] = useState<TabKey>('Watched');
+  const [activeTab, setActiveTab] = useState<TabKey>('Completed');
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [watchedMovies, setWatchedMovies] = useState<Movie[]>([]);
@@ -69,13 +69,14 @@ export default function LibraryScreen() {
   const [laterBooks, setLaterBooks] = useState<Book[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [removingItemId, setRemovingItemId] = useState<string | null>(null);
+  const [promotingItemId, setPromotingItemId] = useState<string | null>(null);
   const [removingReviewId, setRemovingReviewId] = useState<string | null>(null);
 
   const isReviewTab = activeTab === 'Reviews';
   const picked =
-    activeTab === 'Watched'
+    activeTab === 'Completed'
       ? { movies: watchedMovies, books: watchedBooks }
-      : activeTab === 'Watch Later'
+      : activeTab === 'Saved'
         ? { movies: laterMovies, books: laterBooks }
         : { movies: [], books: [] };
 
@@ -277,7 +278,7 @@ export default function LibraryScreen() {
       Alert.alert('Missing item', 'Could not determine which item to remove.');
       return;
     }
-    const isWatchedTab = activeTab === 'Watched';
+    const isWatchedTab = activeTab === 'Completed';
 
     let path = '';
     if (kind === 'movie') {
@@ -324,6 +325,65 @@ export default function LibraryScreen() {
       Alert.alert('Remove failed', String(err?.message || err));
     } finally {
       setRemovingItemId(null);
+    }
+  };
+
+  const markAsDone = async (item: Movie | Book, kind: 'movie' | 'book') => {
+    if (activeTab !== 'Saved') {
+      return;
+    }
+    if (!USER_ID) {
+      Alert.alert('Login required', 'Please sign in to manage your library.');
+      return;
+    }
+    const targetId = String(item.id || '').trim();
+    if (!targetId) {
+      Alert.alert('Missing item', 'Could not determine which item to move.');
+      return;
+    }
+
+    let path = '';
+    if (kind === 'movie') {
+      const numId = Number(targetId);
+      if (!Number.isFinite(numId)) {
+        Alert.alert('Invalid movie', 'Movie id was not valid.');
+        return;
+      }
+      path = `/addwatchedmovie/user/${USER_ID}/movie/${numId}`;
+    } else {
+      path = `/read/user/${USER_ID}/book/${encodeURIComponent(targetId)}`;
+    }
+
+    setPromotingItemId(targetId);
+    try {
+      const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST' });
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const body = isJson ? await res.json() : undefined;
+      if (!res.ok) {
+        const msg = body?.detail || body?.error || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      if (kind === 'movie') {
+        setLaterMovies((prev) => prev.filter((m) => String(m.id) !== targetId));
+        setWatchedMovies((prev) => {
+          const exists = prev.some((m) => String(m.id) === targetId);
+          return exists ? prev : [{ ...(item as Movie) }, ...prev];
+        });
+      } else {
+        setLaterBooks((prev) => prev.filter((b) => String(b.id) !== targetId));
+        setWatchedBooks((prev) => {
+          const exists = prev.some((b) => String(b.id) === targetId);
+          return exists ? prev : [{ ...(item as Book) }, ...prev];
+        });
+      }
+
+      emitLibraryChanged();
+      onRefresh();
+    } catch (err: any) {
+      Alert.alert('Move failed', String(err?.message || err));
+    } finally {
+      setPromotingItemId(null);
     }
   };
 
@@ -408,7 +468,10 @@ export default function LibraryScreen() {
               item={item}
               kind={section.kind}
               onRemove={removeLibraryItem}
+              onMarkDone={markAsDone}
+              showMarkDone={activeTab === 'Saved'}
               removing={removingItemId === String(item.id)}
+              promoting={promotingItemId === String(item.id)}
             />
           )}
           contentContainerStyle={styles.listContent}
@@ -426,12 +489,18 @@ function ItemCard({
   item,
   kind,
   onRemove,
+  onMarkDone,
+  showMarkDone,
   removing,
+  promoting,
 }: {
   item: Movie | Book;
   kind: 'movie' | 'book';
   onRemove: (item: Movie | Book, kind: 'movie' | 'book') => void;
+  onMarkDone: (item: Movie | Book, kind: 'movie' | 'book') => void;
+  showMarkDone?: boolean;
   removing?: boolean;
+  promoting?: boolean;
 }) {
   const isMovie = kind === 'movie';
   const cover = isMovie ? (item as Movie).posterUrl : (item as Book).coverUrl;
@@ -472,6 +541,20 @@ function ItemCard({
 
         <View style={styles.pillsRow}>
           <Pill label={isMovie ? 'Movie' : 'Book'} />
+          {showMarkDone && (
+            <Pressable
+              onPress={() => onMarkDone(item, kind)}
+              disabled={promoting}
+              style={[
+                styles.markDoneButton,
+                promoting && styles.buttonDisabled,
+              ]}
+            >
+              <Text style={styles.markDoneText}>
+                {promoting ? '...' : isMovie ? 'Mark watched' : 'Mark read'}
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </View>
@@ -578,7 +661,7 @@ function EmptyState({ activeTab }: { activeTab: TabKey }) {
         </Text>
       ) : (
         <Text style={styles.emptySubtitle}>
-          Add some {activeTab === 'Watched' ? 'finished' : 'to-watch'} items
+          Add some {activeTab === 'Completed' ? 'finished' : 'saved for later'} items
           to your library.
         </Text>
       )}
@@ -712,4 +795,15 @@ const styles = StyleSheet.create({
   removeButton: { paddingHorizontal: 6, paddingVertical: 2 },
   removeText: { fontSize: 16, color: '#ef4444', fontWeight: '800' },
   buttonDisabled: { opacity: 0.5 },
+  markDoneButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#0ea5e9',
+  },
+  markDoneText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
 });

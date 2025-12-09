@@ -48,6 +48,8 @@ type ActivityFeedItem = {
    timestamp: number | null;
    createdAtLabel: string;
    movieId?: string | null;
+   bookId?: string | null;
+   coverUrl?: string | null;
    actorDisplayName: string | null;
    actorId: string | null;
    actorUsername: string | null;
@@ -260,6 +262,8 @@ function shapeActivity(
       chips.push(`Book #${bookId}`);
    }
 
+   const coverUrl = getString(readMeta(meta, 'coverUrl'));
+
    const uniqueChips = chips.filter(
       (chip, index, arr) => arr.indexOf(chip) === index
    );
@@ -275,6 +279,8 @@ function shapeActivity(
       timestamp,
       createdAtLabel: formatRelativeTime(createdAt),
       movieId: movieId || null,
+      bookId: bookId || null,
+      coverUrl: coverUrl || null,
       actorDisplayName,
       actorId: actorId || null,
       actorUsername,
@@ -470,9 +476,10 @@ export default function HomeScreen() {
    const renderItem: ListRenderItem<ActivityFeedItem> = useCallback(
       ({ item }) => {
          const posterUri =
-            item.movieId && moviePosters[item.movieId]
+            item.coverUrl ||
+            (item.movieId && moviePosters[item.movieId]
                ? moviePosters[item.movieId] || undefined
-               : undefined;
+               : undefined);
          console.log(item);
          return (
             <View
