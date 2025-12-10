@@ -10,6 +10,9 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { router } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 
+const API_BASE =
+    (process.env.EXPO_PUBLIC_API_BASE_URL as string | undefined) || "http://localhost:3000";
+
 export default function ProfileScreen() {
     const { user, logout, updateUser } = useAuth();
     const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -28,7 +31,6 @@ export default function ProfileScreen() {
         reviews: 0,
     });
 
-    const API_BASE = "http://localhost:3000";
     const uid = user?.id;
 
     useFocusEffect(
