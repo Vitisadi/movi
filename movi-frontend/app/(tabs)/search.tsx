@@ -17,6 +17,7 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { emitLibraryChanged } from '@/lib/library-events';
 import { useAuth } from '@/contexts/AuthContext';
+import { AuthWall } from '@/components/auth-wall';
 
 type Kind = 'movie' | 'book';
 
@@ -409,6 +410,17 @@ export default function SearchScreen() {
       notify('Network error', String(err?.message || err));
     }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <ThemedView style={styles.container}>
+        <AuthWall
+          title="Sign in to search"
+          subtitle="Log in or create an account to search and save movies and books."
+        />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>

@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
+import { AuthWall } from '@/components/auth-wall';
 import { useAuth } from '@/contexts/AuthContext';
 import { emitLibraryChanged, onLibraryChanged } from '@/lib/library-events';
 
@@ -408,6 +409,29 @@ export default function LibraryScreen() {
     }
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="small" color="#0ea5e9" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!USER_ID) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Library</Text>
+        <AuthWall
+          title="Sign in to view your library"
+          subtitle="Log in or create an account to see your saved movies, books, and reviews."
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Library</Text>
@@ -431,14 +455,7 @@ export default function LibraryScreen() {
         ))}
       </View>
 
-      {loading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="small" color="#0ea5e9" />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      ) : !USER_ID ? (
-        <EmptyState activeTab={activeTab} />
-      ) : isEmpty ? (
+      {isEmpty ? (
         <EmptyState activeTab={activeTab} />
       ) : activeTab === 'Reviews' ? (
         <ScrollView
