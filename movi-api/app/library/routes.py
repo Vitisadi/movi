@@ -100,9 +100,6 @@ def get_book_by_id(id: str):
     """
     This method is called in the GET endpoints for seeing the books associated with a user
     """
-    Fetch a book by its Works id. Accepts ids with or without the "/works/" prefix.
-    Returns the book dict or None on failure.
-    """
     try:
         raw = (id or "").strip()
     except Exception:
