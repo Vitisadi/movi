@@ -13,6 +13,7 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { AuthWall } from '@/components/auth-wall';
 import { useAuth } from '@/contexts/AuthContext';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
@@ -129,7 +130,7 @@ function buildProfileFromApi(
 export default function FriendsScreen() {
   const { user } = useAuth();
 
-  const activeUserId = user?.id ?? '68c9b2d573fbd318f36537ce';
+  const activeUserId = user?.id ?? '';
   const [query, setQuery] = useState('');
   const [following, setFollowing] = useState<FriendProfile[]>([]);
   const [followers, setFollowers] = useState<FriendProfile[]>([]);
@@ -195,11 +196,24 @@ export default function FriendsScreen() {
   }, [activeUserId]);
 
   useEffect(() => {
+    if (!activeUserId) {
+      setFollowing([]);
+      setFollowers([]);
+      return;
+    }
     fetchNetwork();
   }, [fetchNetwork]);
 
   useEffect(() => {
     let cancelled = false;
+    if (!activeUserId) {
+      setSearchResults([]);
+      setSearchError(null);
+      setSearching(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     const q = trimmedQuery;
     if (!q || !meetsMinChars) {
       setSearchResults([]);
@@ -275,6 +289,10 @@ export default function FriendsScreen() {
 
   const followUser = useCallback(
     async (targetId: string, usernameForDisplay: string, options?: { resetSearch?: boolean }) => {
+      if (!activeUserId) {
+        notify('Login required', 'Please sign in to manage friends.');
+        return;
+      }
       if (!targetId || friendIds.has(targetId)) return;
       const formattedUsername = ensureHandle(usernameForDisplay);
       const display = displayNameFromHandle(formattedUsername);
@@ -308,6 +326,10 @@ export default function FriendsScreen() {
 
   const handleUnfollow = useCallback(
     async (friend: FriendProfile) => {
+      if (!activeUserId) {
+        notify('Login required', 'Please sign in to manage friends.');
+        return;
+      }
       if (!friend?.id) return;
       setRemovingFriendId(friend.id);
       try {
@@ -338,6 +360,17 @@ export default function FriendsScreen() {
   const handleAddFriendFromSearch = (result: SearchResult) => {
     followUser(result.id, result.username, { resetSearch: true });
   };
+
+  if (!user) {
+    return (
+      <ThemedView style={styles.container}>
+        <AuthWall
+          title="Sign in to view friends"
+          subtitle="Log in or create an account to find friends and follow what they are watching."
+        />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
