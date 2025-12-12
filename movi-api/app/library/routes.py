@@ -57,6 +57,9 @@ def get_authors_by_book(r: dict):
 
 
 def search_book_by_title(title: str, num_results: int):
+    """
+    This method is called in the search endpoint to generate results from the Open Library API
+    """
     try:
         n = max(1, int(num_results))
     except Exception:
@@ -95,8 +98,7 @@ def search_book_by_title(title: str, num_results: int):
 
 def get_book_by_id(id: str):
     """
-    Fetch a book by its Works id. Accepts ids with or without the "/works/" prefix.
-    Returns the book dict or None on failure.
+    This method is called in the GET endpoints for seeing the books associated with a user
     """
     try:
         raw = (id or "").strip()
@@ -202,12 +204,18 @@ def searchBook():
 
 @library_bp.get("/book/<title>")
 def searchBookByTitle(title: str):
+    """
+    User-facing endpoint, not to be confused with search_book_by_title which is a helper function for this endpoint
+    """
     num_results = request.args.get("n") or 20
     return search_book_by_title(title, num_results)
 
 
 @library_bp.get("/read/user/<id>")
 def get_books_by_user(id: str):
+    """
+    Get books read by user with id 
+    """
     db = get_db()
     try: 
         oid = ObjectId(id)
@@ -230,6 +238,9 @@ def get_books_by_user(id: str):
 
 @library_bp.get("/toberead/user/<id>")
 def get_tbr_by_user(id: str):
+    """
+    Get books to be read by user with id 
+    """
     db = get_db()
     try: 
         oid = ObjectId(id)
@@ -251,6 +262,9 @@ def get_tbr_by_user(id: str):
 
 @library_bp.post("/read/user/<user_id>/book/<book_id>")
 def add_read_book(user_id: str, book_id: str):
+    """
+    Add book as read to user with id 
+    """
     db = get_db()
     try: 
         uid = str(user_id)
@@ -299,6 +313,9 @@ def add_read_book(user_id: str, book_id: str):
 
 @library_bp.post("/toberead/user/<user_id>/book/<book_id>")
 def add_tbr_book(user_id: str, book_id: str):
+    """
+    Add book as to be read to user with id 
+    """
     db = get_db()
     try: 
         uid = str(user_id)
@@ -343,6 +360,9 @@ def add_tbr_book(user_id: str, book_id: str):
 
 @library_bp.delete("/read/user/<user_id>/book/<book_id>")
 def remove_read_book(user_id: str, book_id: str):
+    """
+    Remove book as read from user with id 
+    """
     db = get_db()
     try: 
         uid = str(user_id)
@@ -376,6 +396,9 @@ def remove_read_book(user_id: str, book_id: str):
 
 @library_bp.delete("/toberead/user/<user_id>/book/<book_id>")
 def remove_tbr_book(user_id: str, book_id: str):
+    """
+    Remove book as to be read from user with id 
+    """
     db = get_db()
     try: 
         uid = str(user_id)
@@ -582,6 +605,9 @@ def delete_review(kind: str, review_id: str):
 
 @library_bp.post("/createbookreview")
 def add_review_book():
+    """
+    Endpoint for creating a book review
+    """
     db = get_db()
     try: 
         payload = request.get_json(silent=True) or {}
