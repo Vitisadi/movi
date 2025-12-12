@@ -94,15 +94,49 @@ def search_book_by_title(title: str, num_results: int):
 
 
 def get_book_by_id(id: str):
-    url = f"https://openlibrary.org/works/{id}.json"
+    """
+    Fetch a book by its Works id. Accepts ids with or without the "/works/" prefix.
+    Returns the book dict or None on failure.
+    """
+    try:
+        raw = (id or "").strip()
+    except Exception:
+        raw = id
+
+    def _normalize_work_id(work_id: str | None) -> str | None:
+        try:
+            s = (work_id or "").strip()
+            if s.startswith("/works/"):
+                s = s[len("/works/") :]
+            if s.startswith("works/"):
+                s = s[len("works/") :]
+            if s.startswith("/"):
+                s = s[1:]
+            return s or None
+        except Exception:
+            return work_id
+
+    work_id = _normalize_work_id(raw)
+    if not work_id:
+        return None
+
+    url = f"https://openlibrary.org/works/{work_id}.json"
     try:
         response = requests.get(url, timeout=10)
+        if response.status_code == 404:
+            return None
         response.raise_for_status()
-        if response.status_code == 200:
-            result = response.json()
-            return result
+        result = response.json() or {}
+        cover_url = _safe_cover_url(result)
+        if cover_url:
+            result["coverUrl"] = cover_url
+        return result
     except Exception as e:
-        return jsonify({"error": "server", "detail": str(e)}), 500
+        try:
+            current_app.logger.warning("get_book_by_id failed for %s: %s", id, e)
+        except Exception:
+            pass
+        return None
 
 
 def _safe_book_title(book: Any) -> str | None:
@@ -185,7 +219,9 @@ def get_books_by_user(id: str):
         book_ids = user.get("readBooks") or []
         items = []
         for book_id in book_ids:
-            items.append(get_book_by_id(book_id))
+            book = get_book_by_id(book_id)
+            if book:
+                items.append(book)
         
         return jsonify({"userId": id, "count": len(items), "readBooks": items}), 200
     except Exception as e:
@@ -205,7 +241,9 @@ def get_tbr_by_user(id: str):
         book_ids = user.get("toBeReadBooks") or []
         items = []
         for book_id in book_ids:
-            items.append(get_book_by_id(book_id))
+            book = get_book_by_id(book_id)
+            if book:
+                items.append(book)
         
         return jsonify({"userId": id, "count": len(items), "toBeReadBooks": items}), 200
     except Exception as e:
