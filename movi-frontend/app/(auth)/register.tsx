@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
    StyleSheet,
    View,
    TextInput,
    TouchableOpacity,
-   Alert,
    KeyboardAvoidingView,
    Platform,
    ScrollView,
+   Text,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
@@ -20,6 +20,9 @@ export default function RegisterScreen() {
    const [email, setEmail] = useState('');
    const [password, setPassword] = useState('');
    const [confirmPassword, setConfirmPassword] = useState('');
+   const [showPassword, setShowPassword] = useState(false);
+   const [showConfirm, setShowConfirm] = useState(false);
+   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
    const router = useRouter();
    const { register: registerUser, isLoading } = useAuth();
 
@@ -31,44 +34,55 @@ export default function RegisterScreen() {
       'text'
    );
 
+   useEffect(() => {
+      if (!toast) return;
+      const t = setTimeout(() => setToast(null), 2500);
+      return () => clearTimeout(t);
+   }, [toast]);
+
    const validateEmail = (email: string) => {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       return emailRegex.test(email);
    };
 
    const validateForm = () => {
-      if (!name.trim()) {
-         Alert.alert('Error', 'Please enter your full name');
+      const cleanName = name.trim();
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanPassword = password.trim();
+      const cleanConfirm = confirmPassword.trim();
+
+      if (!cleanName) {
+         setToast({ type: 'error', message: 'Please enter your full name.' });
          return false;
       }
 
-      if (name.trim().length < 2) {
-         Alert.alert('Error', 'Name must be at least 2 characters long');
+      if (cleanName.length < 2) {
+         setToast({ type: 'error', message: 'Name must be at least 2 characters long.' });
          return false;
       }
 
-      if (!email.trim()) {
-         Alert.alert('Error', 'Please enter your email address');
+      if (!cleanEmail) {
+         setToast({ type: 'error', message: 'Please enter your email address.' });
          return false;
       }
 
-      if (!validateEmail(email)) {
-         Alert.alert('Error', 'Please enter a valid email address');
+      if (!validateEmail(cleanEmail)) {
+         setToast({ type: 'error', message: 'Please enter a valid email address.' });
          return false;
       }
 
-      if (!password) {
-         Alert.alert('Error', 'Please enter a password');
+      if (!cleanPassword) {
+         setToast({ type: 'error', message: 'Please enter a password.' });
          return false;
       }
 
-      if (password.length < 6) {
-         Alert.alert('Error', 'Password must be at least 6 characters long');
+      if (cleanPassword.length < 6) {
+         setToast({ type: 'error', message: 'Password must be at least 6 characters long.' });
          return false;
       }
 
-      if (password !== confirmPassword) {
-         Alert.alert('Error', 'Passwords do not match');
+      if (cleanPassword !== cleanConfirm) {
+         setToast({ type: 'error', message: 'Passwords do not match.' });
          return false;
       }
 
@@ -81,27 +95,17 @@ export default function RegisterScreen() {
       }
 
       try {
-         await registerUser(name, email, password);
-
-         Alert.alert(
-            'Success',
-            'Account created successfully! Please sign in with your new account.',
-            [
-               {
-                  text: 'OK',
-                  onPress: () => {
-                     router.replace('/(auth)/login');
-                  },
-               },
-            ]
-         );
+         await registerUser(name.trim(), email.trim().toLowerCase(), password.trim());
+         router.replace('/(auth)/login?created=1');
+         setToast({ type: 'success', message: 'Account created. Sign in to continue.' });
       } catch (error) {
-         Alert.alert(
-            'Error',
-            error instanceof Error
-               ? error.message
-               : 'Registration failed. Please try again.'
-         );
+         setToast({
+            type: 'error',
+            message:
+               error instanceof Error
+                  ? error.message
+                  : 'Registration failed. Please try again.',
+         });
       }
    };
 
@@ -162,63 +166,89 @@ export default function RegisterScreen() {
                               color: textColor,
                            },
                         ]}
-                        placeholder='Enter your email'
-                        placeholderTextColor={placeholderColor}
-                        value={email}
-                        onChangeText={setEmail}
-                        autoCapitalize='none'
-                        keyboardType='email-address'
-                        autoComplete='email'
-                        editable={!isLoading}
-                     />
-                  </View>
+                    placeholder='Enter your email'
+                    placeholderTextColor={placeholderColor}
+                    value={email}
+                    onChangeText={(v) => setEmail(v.trimStart())}
+                    autoCapitalize='none'
+                    keyboardType='email-address'
+                    autoComplete='email'
+                    editable={!isLoading}
+                    returnKeyType='next'
+                 />
+               </View>
 
-                  <View style={styles.inputContainer}>
-                     <ThemedText style={styles.label}>Password</ThemedText>
+               <View style={styles.inputContainer}>
+                  <ThemedText style={styles.label}>Password</ThemedText>
+                  <View style={styles.passwordRow}>
                      <TextInput
                         style={[
                            styles.input,
                            {
                               borderColor: tintColor,
                               color: textColor,
+                              flex: 1,
                            },
                         ]}
                         placeholder='Enter your password'
                         placeholderTextColor={placeholderColor}
                         value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry
+                        onChangeText={(v) => setPassword(v)}
+                        secureTextEntry={!showPassword}
                         autoComplete='new-password'
                         editable={!isLoading}
+                        returnKeyType='next'
                      />
-                     <ThemedText
-                        style={[styles.helperText, { color: placeholderColor }]}
+                     <TouchableOpacity
+                        onPress={() => setShowPassword((prev) => !prev)}
+                        style={styles.toggle}
                      >
-                        Password must be at least 6 characters
+                        <ThemedText style={{ color: tintColor }}>
+                           {showPassword ? 'Hide' : 'Show'}
+                        </ThemedText>
+                     </TouchableOpacity>
+                  </View>
+                  <ThemedText
+                     style={[styles.helperText, { color: placeholderColor }]}
+                  >
+                     Password must be at least 6 characters
                      </ThemedText>
                   </View>
 
                   <View style={styles.inputContainer}>
-                     <ThemedText style={styles.label}>
-                        Confirm Password
-                     </ThemedText>
+                 <ThemedText style={styles.label}>
+                    Confirm Password
+                 </ThemedText>
+                  <View style={styles.passwordRow}>
                      <TextInput
                         style={[
                            styles.input,
                            {
                               borderColor: tintColor,
                               color: textColor,
+                              flex: 1,
                            },
                         ]}
                         placeholder='Confirm your password'
                         placeholderTextColor={placeholderColor}
                         value={confirmPassword}
-                        onChangeText={setConfirmPassword}
-                        secureTextEntry
+                        onChangeText={(v) => setConfirmPassword(v)}
+                        secureTextEntry={!showConfirm}
                         autoComplete='new-password'
                         editable={!isLoading}
+                        returnKeyType='done'
+                        onSubmitEditing={handleRegister}
                      />
+                     <TouchableOpacity
+                        onPress={() => setShowConfirm((prev) => !prev)}
+                        style={styles.toggle}
+                     >
+                        <ThemedText style={{ color: tintColor }}>
+                           {showConfirm ? 'Hide' : 'Show'}
+                        </ThemedText>
+                     </TouchableOpacity>
                   </View>
+               </View>
 
                   {/* Register Button */}
                   <TouchableOpacity
@@ -265,6 +295,17 @@ export default function RegisterScreen() {
                </View>
             </ThemedView>
          </ScrollView>
+         {toast ? (
+            <View
+               style={[
+                  styles.toast,
+                  toast.type === 'error' && { backgroundColor: '#ef4444' },
+                  toast.type === 'success' && { backgroundColor: '#22c55e' },
+               ]}
+            >
+               <Text style={styles.toastText}>{toast.message}</Text>
+            </View>
+         ) : null}
       </KeyboardAvoidingView>
    );
 }
@@ -355,4 +396,21 @@ const styles = StyleSheet.create({
       fontSize: 14,
       fontWeight: '600',
    },
+   passwordRow: { flexDirection: 'row', alignItems: 'center' },
+   toggle: { paddingHorizontal: 8, paddingVertical: 8 },
+   toast: {
+      position: 'absolute',
+      top: 20,
+      left: 16,
+      right: 16,
+      padding: 12,
+      borderRadius: 12,
+      shadowColor: '#000',
+      shadowOpacity: 0.08,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 2,
+      backgroundColor: '#0ea5e9',
+   },
+   toastText: { color: '#f8fafc', fontWeight: '700', textAlign: 'center' },
 });

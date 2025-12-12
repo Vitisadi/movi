@@ -1,11 +1,14 @@
 from . import library_bp
-from flask import jsonify, request
+from flask import current_app, jsonify, request
 import requests
 from ..entries.schemas import Book
 from ..db import get_db
 from bson.objectid import ObjectId
 import datetime
 import json
+from ..tmdb.routes import _fetch_movie_simple
+from ..users.service import add_activity as users_add_activity
+from typing import Any
 
 def normalize_book(r: dict):
     # Works JSON uses 'covers': [id,...]; Search JSON uses 'cover_i'
@@ -97,15 +100,103 @@ def get_book_by_id(id: str):
     """
     This method is called in the GET endpoints for seeing the books associated with a user
     """
-    url = f"https://openlibrary.org/works/{id}.json"
+    Fetch a book by its Works id. Accepts ids with or without the "/works/" prefix.
+    Returns the book dict or None on failure.
+    """
+    try:
+        raw = (id or "").strip()
+    except Exception:
+        raw = id
+
+    def _normalize_work_id(work_id: str | None) -> str | None:
+        try:
+            s = (work_id or "").strip()
+            if s.startswith("/works/"):
+                s = s[len("/works/") :]
+            if s.startswith("works/"):
+                s = s[len("works/") :]
+            if s.startswith("/"):
+                s = s[1:]
+            return s or None
+        except Exception:
+            return work_id
+
+    work_id = _normalize_work_id(raw)
+    if not work_id:
+        return None
+
+    url = f"https://openlibrary.org/works/{work_id}.json"
     try:
         response = requests.get(url, timeout=10)
+        if response.status_code == 404:
+            return None
         response.raise_for_status()
-        if response.status_code == 200:
-            result = response.json()
-            return result
+        result = response.json() or {}
+        cover_url = _safe_cover_url(result)
+        if cover_url:
+            result["coverUrl"] = cover_url
+        return result
     except Exception as e:
-        return jsonify({"error": "server", "detail": str(e)}), 500
+        try:
+            current_app.logger.warning("get_book_by_id failed for %s: %s", id, e)
+        except Exception:
+            pass
+        return None
+
+
+def _safe_book_title(book: Any) -> str | None:
+    """Attempt to extract a title string from a book payload."""
+    try:
+        if isinstance(book, dict):
+            title = book.get("title")
+            if isinstance(title, str):
+                return title
+            if title is not None:
+                return str(title)
+    except Exception:
+        return None
+    return None
+
+
+def _safe_cover_url(book: Any) -> str | None:
+    """Attempt to extract a cover URL from Works/OpenLibrary shapes."""
+    try:
+        if isinstance(book, dict):
+            cover_id = None
+            if isinstance(book.get("covers"), list) and book["covers"]:
+                cover_id = book["covers"][0]
+            if cover_id:
+                return f"https://covers.openlibrary.org/b/id/{cover_id}-M.jpg"
+            if isinstance(book.get("coverUrl"), str):
+                return book["coverUrl"]
+    except Exception:
+        return None
+    return None
+
+
+def _log_activity(user_oid: ObjectId, activity: str, meta: dict | None = None) -> str | None:
+    """
+    Create an activity row and push its id to the user's `activities` array (newest first).
+    Failures are swallowed so book operations do not error out because of logging.
+    """
+    try:
+        act_id = users_add_activity(
+            user_oid,
+            activity,
+            meta if isinstance(meta, dict) else None
+        )
+        db = get_db()
+        db.users.update_one(
+            {"_id": user_oid},
+            {"$push": {"activities": {"$each": [ObjectId(act_id)], "$position": 0}}}
+        )
+        return str(act_id)
+    except Exception:
+        try:
+            current_app.logger.warning("activity log failed for user %s", user_oid)
+        except Exception:
+            pass
+        return None
 
 
 @library_bp.get("/book")
@@ -139,7 +230,9 @@ def get_books_by_user(id: str):
         book_ids = user.get("readBooks") or []
         items = []
         for book_id in book_ids:
-            items.append(get_book_by_id(book_id))
+            book = get_book_by_id(book_id)
+            if book:
+                items.append(book)
         
         return jsonify({"userId": id, "count": len(items), "readBooks": items}), 200
     except Exception as e:
@@ -162,7 +255,9 @@ def get_tbr_by_user(id: str):
         book_ids = user.get("toBeReadBooks") or []
         items = []
         for book_id in book_ids:
-            items.append(get_book_by_id(book_id))
+            book = get_book_by_id(book_id)
+            if book:
+                items.append(book)
         
         return jsonify({"userId": id, "count": len(items), "toBeReadBooks": items}), 200
     except Exception as e:
@@ -203,6 +298,17 @@ def add_read_book(user_id: str, book_id: str):
         # Remove book from read later list if present
         db.users.update_one({"_id": oid}, {"$pull": {"toBeReadBooks": book_id}})
 
+        meta = {
+            "bookId": book_id,
+            "status": "Read",
+            "type": "book",
+            "coverUrl": _safe_cover_url(b),
+        }
+        title = _safe_book_title(b)
+        if title:
+            meta["title"] = title
+        _log_activity(oid, "Added book to Read", meta)
+
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
@@ -239,6 +345,17 @@ def add_tbr_book(user_id: str, book_id: str):
             db.users.update_one({"_id": oid}, {"$set": {"toBeReadBooks": [book_id]}})
         else:
             db.users.update_one({"_id": oid}, {"$push": {"toBeReadBooks": book_id}})
+
+        meta = {
+            "bookId": book_id,
+            "status": "Read Later",
+            "type": "book",
+            "coverUrl": _safe_cover_url(b),
+        }
+        title = _safe_book_title(b)
+        if title:
+            meta["title"] = title
+        _log_activity(oid, "Added book to Read Later", meta)
 
         return jsonify({"ok": True, "userId": user_id, "bookId": book_id}), 200
     except Exception as e:
@@ -316,7 +433,179 @@ def remove_tbr_book(user_id: str, book_id: str):
                         "modified": (before_count != after_count)})
     except Exception as e:
         return jsonify({"error": "server", "detail": str(e)}), 500
-    
+
+def _coerce_iso(dt):
+    if isinstance(dt, datetime.datetime):
+        return dt.isoformat()
+    try:
+        return dt if dt is None else str(dt)
+    except Exception:
+        return None
+
+def _shape_movie_review(db, review: dict) -> dict | None:
+    try:
+        rid = str(review.get("_id"))
+    except Exception:
+        return None
+    movie_id = review.get("movieId")
+    meta = None
+    try:
+        meta = _fetch_movie_simple(movie_id)
+    except Exception:
+        meta = None
+    return {
+        "id": rid,
+        "kind": "movie",
+        "itemId": movie_id,
+        "itemTitle": (meta or {}).get("title"),
+        "itemPoster": (meta or {}).get("posterUrl"),
+        "itemYear": (meta or {}).get("year"),
+        "rating": review.get("rating"),
+        "title": review.get("title"),
+        "body": review.get("body"),
+        "createdAt": _coerce_iso(review.get("createdAt")),
+        "updatedAt": _coerce_iso(review.get("updatedAt")),
+    }
+
+def _shape_book_review(review: dict) -> dict | None:
+    try:
+        rid = str(review.get("_id"))
+    except Exception:
+        return None
+    book_id = review.get("bookId")
+    meta = None
+    try:
+        meta = get_book_by_id(book_id)
+    except Exception:
+        meta = None
+    author_name = None
+    if isinstance(meta, dict):
+        if isinstance(meta.get("authors"), list):
+            try:
+                author_name = ", ".join([a.get("name") for a in meta["authors"] if a.get("name")])
+            except Exception:
+                author_name = None
+        if not author_name and isinstance(meta.get("author_name"), list):
+            try:
+                author_name = ", ".join([a for a in meta["author_name"] if a])
+            except Exception:
+                author_name = None
+    return {
+        "id": rid,
+        "kind": "book",
+        "itemId": book_id,
+        "itemTitle": (meta or {}).get("title"),
+        "itemAuthor": author_name,
+        "itemYear": (meta or {}).get("first_publish_year"),
+        "itemCover": (meta or {}).get("coverUrl"),
+        "rating": review.get("rating"),
+        "title": review.get("title"),
+        "body": review.get("body"),
+        "createdAt": _coerce_iso(review.get("createdAt")),
+        "updatedAt": _coerce_iso(review.get("updatedAt")),
+    }
+
+@library_bp.get("/reviews/user/<user_id>")
+def list_reviews(user_id: str):
+    """
+    Return combined movie and book reviews for the user, sorted by newest first.
+    """
+    db = get_db()
+    try:
+        oid = ObjectId((user_id or "").strip())
+    except Exception:
+        return jsonify({"error": "invalid_user_id"}), 400
+    try:
+        movie_reviews = list(db.movieReviews.find({"userId": oid}).sort("createdAt", -1))
+    except Exception:
+        movie_reviews = []
+    try:
+        book_reviews = list(db.bookReviews.find({"userId": oid}).sort("createdAt", -1))
+    except Exception:
+        book_reviews = []
+
+    items = []
+    for r in movie_reviews:
+        shaped = _shape_movie_review(db, r)
+        if shaped:
+            items.append(shaped)
+    for r in book_reviews:
+        shaped = _shape_book_review(r)
+        if shaped:
+            items.append(shaped)
+
+    # Ensure chronological order newest->oldest
+    try:
+        items.sort(key=lambda r: r.get("createdAt") or "", reverse=True)
+    except Exception:
+        pass
+
+    return jsonify({
+        "ok": True,
+        "userId": user_id,
+        "count": len(items),
+        "items": items
+    }), 200
+
+@library_bp.delete("/reviews/<kind>/<review_id>")
+def delete_review(kind: str, review_id: str):
+    """
+    Delete a single review by id. Kind must be 'movie' or 'book'.
+    Also removes the review reference from the user document if present.
+    """
+    db = get_db()
+    kind_norm = (kind or "").strip().lower()
+    if kind_norm not in {"movie", "book"}:
+        return jsonify({"error": "invalid_kind"}), 400
+    try:
+        rid = ObjectId((review_id or "").strip())
+    except Exception:
+        return jsonify({"error": "invalid_review_id"}), 400
+
+    collection = db.movieReviews if kind_norm == "movie" else db.bookReviews
+
+    doc = collection.find_one({"_id": rid})
+    if not doc:
+        return jsonify({"error": "review_not_found"}), 404
+
+    res = collection.delete_one({"_id": rid})
+
+    user_oid = doc.get("userId") if isinstance(doc.get("userId"), ObjectId) else None
+    if user_oid:
+        field = "movieReviews" if kind_norm == "movie" else "bookReviews"
+        try:
+            db.users.update_one({"_id": user_oid}, {"$pull": {field: rid}})
+        except Exception:
+            pass
+
+    # Remove any related activity entries (by meta.reviewId) and pull from user's activities list
+    try:
+        if user_oid:
+            related_acts = list(
+                db.userActivities.find(
+                    {"userId": user_oid, "meta.reviewId": str(review_id)}
+                )
+            )
+            if related_acts:
+                act_ids = [act["_id"] for act in related_acts if isinstance(act.get("_id"), ObjectId)]
+                db.userActivities.delete_many({"_id": {"$in": act_ids}})
+                if act_ids:
+                    db.users.update_one(
+                        {"_id": user_oid},
+                        {"$pull": {"activities": {"$in": act_ids}}},
+                    )
+    except Exception:
+        # Do not fail deletion because activity cleanup failed
+        pass
+
+    return jsonify({
+        "ok": True,
+        "kind": kind_norm,
+        "reviewId": review_id,
+        "deleted": bool(res.deleted_count),
+        "userId": str(user_oid) if user_oid else None,
+    }), 200
+
 @library_bp.post("/createbookreview")
 def add_review_book():
     """
@@ -386,6 +675,23 @@ def add_review_book():
                 "detail": str(e),
                 "reviewId": str(review_id)
             }), 500
+
+        # Log activity for feed
+        try:
+            _log_activity(
+                oid,
+                "Reviewed book",
+                {
+                    "bookId": book_id,
+                    "rating": r,
+                    "title": (title if isinstance(title, str) else None),
+                    "reviewId": str(review_id),
+                    "type": "book",
+                    "coverUrl": _safe_cover_url(b),
+                },
+            )
+        except Exception:
+            pass
         
         return jsonify({
             "ok": True,

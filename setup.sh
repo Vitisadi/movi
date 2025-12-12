@@ -47,7 +47,9 @@ if [ ! -f ".env" ]; then
     echo "📝 Creating .env file..."
     cat > .env << 'EOF'
 MONGODB_URI=
+DB_NAME=
 PORT=3000
+TMDB_V3_KEY=
 EOF
     echo "✅ .env file created successfully!"
     echo "⚠️  Please update the .env file with your actual configuration values"

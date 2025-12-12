@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import type { ListRenderItem } from 'react-native';
 import {
    ActivityIndicator,
@@ -48,6 +49,8 @@ type ActivityFeedItem = {
    timestamp: number | null;
    createdAtLabel: string;
    movieId?: string | null;
+   bookId?: string | null;
+   coverUrl?: string | null;
    actorDisplayName: string | null;
    actorId: string | null;
    actorUsername: string | null;
@@ -59,7 +62,9 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const WEEK = 7 * DAY;
 const YEAR = 365 * DAY;
+const AUTO_REFRESH_INTERVAL_MS = 30 * 1000;
 const TMDB_POSTER_BASE = 'https://image.tmdb.org/t/p/w185';
+const AUTO_REFRESH_MS = 30000; // 30s
 
 function toDate(value: unknown): Date | null {
    if (!value) {
@@ -259,6 +264,8 @@ function shapeActivity(
       chips.push(`Book #${bookId}`);
    }
 
+   const coverUrl = getString(readMeta(meta, 'coverUrl'));
+
    const uniqueChips = chips.filter(
       (chip, index, arr) => arr.indexOf(chip) === index
    );
@@ -274,6 +281,8 @@ function shapeActivity(
       timestamp,
       createdAtLabel: formatRelativeTime(createdAt),
       movieId: movieId || null,
+      bookId: bookId || null,
+      coverUrl: coverUrl || null,
       actorDisplayName,
       actorId: actorId || null,
       actorUsername,
@@ -373,6 +382,17 @@ export default function HomeScreen() {
    }, [fetchActivity]);
 
    useEffect(() => {
+      if (authLoading || !user?.id) {
+         return;
+      }
+      const intervalId = setInterval(() => {
+         void fetchActivity(false);
+      }, AUTO_REFRESH_INTERVAL_MS);
+
+      return () => clearInterval(intervalId);
+   }, [authLoading, fetchActivity, user?.id]);
+
+   useEffect(() => {
       const controller = new AbortController();
       const loadPosters = async () => {
          const missingIds = Array.from(
@@ -455,12 +475,27 @@ export default function HomeScreen() {
 
    const greetingName = user?.name?.split(' ')[0] || user?.username || 'there';
 
+   // Auto-refresh when screen focused and periodically while focused
+   useFocusEffect(
+      useCallback(() => {
+         if (authLoading || !user?.id) {
+            return () => {};
+         }
+         void fetchActivity(true);
+         const id = setInterval(() => {
+            void fetchActivity(false);
+         }, AUTO_REFRESH_MS);
+         return () => clearInterval(id);
+      }, [authLoading, fetchActivity, user?.id])
+   );
+
    const renderItem: ListRenderItem<ActivityFeedItem> = useCallback(
       ({ item }) => {
          const posterUri =
-            item.movieId && moviePosters[item.movieId]
+            item.coverUrl ||
+            (item.movieId && moviePosters[item.movieId]
                ? moviePosters[item.movieId] || undefined
-               : undefined;
+               : undefined);
          console.log(item);
          return (
             <View

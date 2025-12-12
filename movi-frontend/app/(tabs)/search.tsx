@@ -17,6 +17,7 @@ import { ThemedView } from '@/components/themed-view';
 import { ThemedText } from '@/components/themed-text';
 import { emitLibraryChanged } from '@/lib/library-events';
 import { useAuth } from '@/contexts/AuthContext';
+import { AuthWall } from '@/components/auth-wall';
 
 type Kind = 'movie' | 'book';
 
@@ -338,8 +339,14 @@ export default function SearchScreen() {
   const closeReview = () => setReviewVisible(false);
 
   const submitReview = async () => {
-    const ratingNum = Number(reviewRating);
-    if (!ratingNum || ratingNum < 1 || ratingNum > 10) {
+    const rawRating = (reviewRating || '').trim();
+    const [intPart, decPart = ''] = rawRating.split('.');
+    if (!intPart || decPart.length > 1) {
+      notify('Invalid rating', 'Please enter a rating from 1 to 10 (one decimal max).');
+      return;
+    }
+    const ratingNum = Number(rawRating);
+    if (!Number.isFinite(ratingNum) || ratingNum < 1 || ratingNum > 10) {
       notify('Invalid rating', 'Please enter a rating from 1 to 10.');
       return;
     }
@@ -403,6 +410,17 @@ export default function SearchScreen() {
       notify('Network error', String(err?.message || err));
     }
   };
+
+  if (!isAuthenticated) {
+    return (
+      <ThemedView style={styles.container}>
+        <AuthWall
+          title="Sign in to search"
+          subtitle="Log in or create an account to search and save movies and books."
+        />
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -473,21 +491,28 @@ export default function SearchScreen() {
               </Text>
             )}
             <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Rating (1-10)</Text>
+              <Text style={styles.modalLabel}>Rating (1-10, max 1 decimal)</Text>
               <TextInput
                 value={reviewRating}
-                onChangeText={setReviewRating}
-                keyboardType="number-pad"
+                onChangeText={(text) => {
+                  const cleaned = text
+                    .replace(/[^\d.]/g, '')
+                    .replace(/(\..*)\./g, '$1');
+                  setReviewRating(cleaned);
+                }}
+                keyboardType="decimal-pad"
                 placeholder="e.g. 8"
+                placeholderTextColor="#cbd5e1"
                 style={styles.input}
               />
             </View>
             <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Title</Text>
+              <Text style={styles.modalLabel}>Review Title</Text>
               <TextInput
                 value={reviewTitle}
-                onChangeText={setReviewTitle}
+                onChangeText={(text) => setReviewTitle(text.slice(0, 80))}
                 placeholder="Short title (optional)"
+                placeholderTextColor="#cbd5e1"
                 style={styles.input}
               />
             </View>
@@ -495,8 +520,9 @@ export default function SearchScreen() {
               <Text style={styles.modalLabel}>Review</Text>
               <TextInput
                 value={reviewText}
-                onChangeText={setReviewText}
+                onChangeText={(text) => setReviewText(text.slice(0, 800))}
                 placeholder="Write your thoughts..."
+                placeholderTextColor="#cbd5e1"
                 style={[styles.input, styles.textarea]}
                 multiline
               />
